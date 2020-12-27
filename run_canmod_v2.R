@@ -17,7 +17,7 @@ source("helper_functions_v2.R")
 ### --- Global variables ---- #####
 args = commandArgs(trailingOnly = T)
 if (!exists("cancer.type")){
-  cancer.type = ifelse(length(args) !=0 , args[1], "BRCA")
+  cancer.type = ifelse(length(args) !=0 , args[1], "LUSC")
 }
 
 # Load required input for CanMod  ---------------------------------------------------------
@@ -398,17 +398,23 @@ selected.seed.target.list =  lapply(1:length(seed.target.list), function(index){
     seed.list = overall.seed.list[[i]]
     seed.targets = seed.list$seed.targets
     seed.partners = seed.list$all.targets.in.cluster
-    seed.target.partner.list = lapply(1:length(seed.targets), function(k){
-      seed.target = seed.targets[k]
-      seed.target.cor = expression.cor[seed.target, seed.partners]
-      if (length(seed.target) == 1 && abs(seed.target.cor) > cor.threshold){
-        selected.partners = seed.target
+    seed.target.partner.list = lapply(1:length(seed.partners), function(k){
+      seed.partner = seed.partners[k]
+      #seed.target = seed.targets[k]
+      if(rlang::is_empty(seed.partners)|| rlang::is_empty(seed.targets))
+      {return()}
+      else{
+        seed.target.cor = expression.cor[seed.partner, seed.targets]
+        if (abs(seed.target.cor) > cor.threshold){
+          selected.partners = seed.partner
+          return(selected.partners)
+        }
+        selected.partners = names(which(abs(seed.target.cor) > cor.threshold))
         return(selected.partners)
       }
-      selected.partners = names(which(abs(seed.target.cor) > cor.threshold))
-      return(selected.partners)
     })
-    names(seed.target.partner.list) = seed.targets
+    #names(seed.target.partner.list) = seed.targets
+    seed.target.partner.list<-rlist:: list.append(seed.target.partner.list, seed.targets)
     return(seed.target.partner.list)
   })
 })
