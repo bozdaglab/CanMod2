@@ -286,7 +286,7 @@ to.removed.indicies = which(grepl(regulator.target.pair.dt$regulator, pattern = 
 regulator.target.pair.dt = regulator.target.pair.dt[-to.removed.indicies]
 # removing the details of lasso, and keep only regulator-target pairs
 lasso.df = regulator.target.pair.dt[,c(1,2)]
-save(lasso.df, regulator.cluster.list, file =  paste0(cancer.type, "_Step2_lasso.df.rda"))
+save(lasso.df, file =  paste0(cancer.type, "_Step2_lasso.df.rda"))
 
 regulation.target.df = matrix(data = 0, 
                               nrow = length(unique(lasso.df$target)),
