@@ -51,7 +51,40 @@ regression.data = list(mRNA = mRNA, miRNA = miRNA, methyl = methyl, cna = cnv); 
   rownames(regression.data$miRNA) = gsub(rownames(regression.data$miRNA), pattern = "[-]", replacement = ".")
   regression.data$miRNA.target.interactions$miRNA = gsub(regression.data$miRNA.target.interactions$miRNA, pattern = "[-]", replacement = ".")
 }
+de.genes = rownames(regression.data$mRNA); length(de.genes)
 
+# get similarity matrixaaaaaaaaaa
+hsGO2 = godata('org.Hs.eg.db', keytype = "SYMBOL", ont="BP", computeIC=FALSE)
+sum(de.genes %in% unique(hsGO2@keys))
+
+cat("Start computing GO-based similarity matrix \n")
+time = proc.time()
+de.gene.bp.sim = mgeneSim(de.genes, semData=hsGO2, measure="Wang", combine="BMA", verbose=FALSE, drop = NULL)
+time = proc.time() - time
+cat("running time for computing gene similarity based on GO:", time[3])
+
+cat("Done with obtaining similarity matrix in cluster_de_genes for", cancer.type, "\n") 
+save(de.gene.bp.sim, file =  paste0(cancer.type, "_Step3_de.gene.bp.sim.rda"))
+
+# cluster de gene by GO similarity 
+time = proc.time()
+de.gene.bp.cluster = apcluster(s = de.gene.bp.sim, details = T, maxits = 10000, convits = 100)
+time = proc.time() - time
+
+de.gene.bp.cluster.list = lapply(1:length(de.gene.bp.cluster@clusters), function(index){
+  cluster = names(de.gene.bp.cluster@clusters[[index]])
+  return(cluster)
+})
+de.gene.bp.cluster.list.gene<-unlist(de.gene.bp.cluster.list)
+common.de.gene.bp.cluster.list.gene<-unique(intersect(regression.data$mRNA,de.gene.bp.cluster.list.gene))
+target.sim = de.gene.bp.sim
+target.cluster.list = de.gene.bp.cluster.list
+
+names(target.cluster.list) = as.character(1:length(target.cluster.list))
+target.cluster.df = list2df(target.cluster.list); names(target.cluster.df) = c("target","cluster")
+
+save(target.cluster.list, file =  paste0(cancer.type, "_Step3_target.cluster.list.rda"))
+save(target.cluster.df, file =  paste0(cancer.type, "_Step3_target.cluster.df.rda"))
 #regression.data$mRNA contains mRNA expression data for all tumor patients of TCGA
 # STEP 1: variable selection -----------------------------------
 mRNA.targets = rownames(regression.data$mRNA)
@@ -325,40 +358,40 @@ regulator.cluster.list = regulator.cluster.list[-which(sapply(regulator.cluster.
 save(regulator.cluster.list, file =  paste0(cancer.type, "_Step2_regulator.cluster.list.rda"))
 save(regulator.cluster.df, file =  paste0(cancer.type, "_Step2_regulator.cluster.df.rda"))
 
-# STEP 3: Get GO-based cluster --------------------------------------------------------------------------
-de.genes = rownames(regression.data$mRNA); length(de.genes)
-
-# get similarity matrix
-hsGO2 = godata('org.Hs.eg.db', keytype = "SYMBOL", ont="BP", computeIC=FALSE)
-sum(de.genes %in% unique(hsGO2@keys))
-
-cat("Start computing GO-based similarity matrix \n")
-time = proc.time()
-de.gene.bp.sim = mgeneSim(de.genes, semData=hsGO2, measure="Wang", combine="BMA", verbose=FALSE, drop = NULL)
-time = proc.time() - time
-cat("running time for computing gene similarity based on GO:", time[3])
-
-cat("Done with obtaining similarity matrix in cluster_de_genes for", cancer.type, "\n") 
-save(de.gene.bp.sim, file =  paste0(cancer.type, "_Step3_de.gene.bp.sim.rda"))
-
-# cluster de gene by GO similarity 
-time = proc.time()
-de.gene.bp.cluster = apcluster(s = de.gene.bp.sim, details = T, maxits = 10000, convits = 100)
-time = proc.time() - time
-
-de.gene.bp.cluster.list = lapply(1:length(de.gene.bp.cluster@clusters), function(index){
-  cluster = names(de.gene.bp.cluster@clusters[[index]])
-  return(cluster)
-})
-
-target.sim = de.gene.bp.sim
-target.cluster.list = de.gene.bp.cluster.list
-
-names(target.cluster.list) = as.character(1:length(target.cluster.list))
-target.cluster.df = list2df(target.cluster.list); names(target.cluster.df) = c("target","cluster")
-
-save(target.cluster.list, file =  paste0(cancer.type, "_Step3_target.cluster.list.rda"))
-save(target.cluster.df, file =  paste0(cancer.type, "_Step3_target.cluster.df.rda"))
+# # STEP 3: Get GO-based cluster --------------------------------------------------------------------------
+# de.genes = rownames(regression.data$mRNA); length(de.genes)
+# 
+# # get similarity matrix
+# hsGO2 = godata('org.Hs.eg.db', keytype = "SYMBOL", ont="BP", computeIC=FALSE)
+# sum(de.genes %in% unique(hsGO2@keys))
+# 
+# cat("Start computing GO-based similarity matrix \n")
+# time = proc.time()
+# de.gene.bp.sim = mgeneSim(de.genes, semData=hsGO2, measure="Wang", combine="BMA", verbose=FALSE, drop = NULL)
+# time = proc.time() - time
+# cat("running time for computing gene similarity based on GO:", time[3])
+# 
+# cat("Done with obtaining similarity matrix in cluster_de_genes for", cancer.type, "\n")
+# save(de.gene.bp.sim, file =  paste0(cancer.type, "_Step3_de.gene.bp.sim.rda"))
+# 
+# # cluster de gene by GO similarity
+# time = proc.time()
+# de.gene.bp.cluster = apcluster(s = de.gene.bp.sim, details = T, maxits = 10000, convits = 100)
+# time = proc.time() - time
+# 
+# de.gene.bp.cluster.list = lapply(1:length(de.gene.bp.cluster@clusters), function(index){
+#   cluster = names(de.gene.bp.cluster@clusters[[index]])
+#   return(cluster)
+# })
+# 
+# target.sim = de.gene.bp.sim
+# target.cluster.list = de.gene.bp.cluster.list
+# 
+# names(target.cluster.list) = as.character(1:length(target.cluster.list))
+# target.cluster.df = list2df(target.cluster.list); names(target.cluster.df) = c("target","cluster")
+# 
+# save(target.cluster.list, file =  paste0(cancer.type, "_Step3_target.cluster.list.rda"))
+# save(target.cluster.df, file =  paste0(cancer.type, "_Step3_target.cluster.df.rda"))
 
 # STEP 4: Generate candidate modules ------------------------------------------------------------------------
 # for each regulator cluster, recruit targets
