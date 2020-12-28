@@ -404,6 +404,9 @@ selected.seed.target.list =  lapply(1:length(seed.target.list), function(index){
     seed.list = overall.seed.list[[i]]
     seed.targets = seed.list$seed.targets
     seed.partners = seed.list$all.targets.in.cluster
+    if(length(seed.partners) == 0){
+      return(unique(seed.targets))  
+    }
     seed.target.partner.list = lapply(1:length(seed.partners), function(k){
       seed.partner = seed.partners[k]
       seed.target.cor = expression.cor[seed.partner, seed.targets]
@@ -445,18 +448,8 @@ save(simplified.regulator.target.list, file =  paste0(cancer.type, "_Step4_simpl
 # Step 5: refine module using SCCA ----------------------------------------------------------------------------------------------
 module.expression.list = lapply(1:length(simplified.regulator.target.list), function(index){
   module = simplified.regulator.target.list[[index]]
-  if (length(module$targets) == 1){
-    target.df = t(as.data.frame(expression.df[module$targets,]))
-    rownames(target.df) = module$targets
-  }else{
-    target.df = expression.df[module$targets,]
-  }
-  if (length(module$regulators) == 1){
-    regulator.df = t(as.data.frame(expression.df[module$regulators,]))
-    rownames(regulator.df) = module$regulators
-  }else{
-    regulator.df = expression.df[module$regulators,]
-  }
+  target.df = expression.df[module$targets,, drop = F]
+  regulator.df = expression.df[module$regulators,, drop = F]
   module = list(target.df=target.df,
                 regulator.df=regulator.df)
 })
