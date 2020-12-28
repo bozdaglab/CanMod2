@@ -1,7 +1,7 @@
 # install.packages("HDCI")
 # install.packages("pbapply")
 # install.packages("doParallel")
-# install.packages("bnlearn")
+library(PMA)
 library(pbapply)
 library(HDCI)
 library(data.table)
@@ -17,7 +17,7 @@ source("helper_functions_v2.R")
 ### --- Global variables ---- #####
 args = commandArgs(trailingOnly = T)
 if (!exists("cancer.type")){
-  cancer.type = ifelse(length(args) !=0 , args[1], "LUSC")
+  cancer.type = ifelse(length(args) !=0 , args[1], "BRCA")
 }
 
 # Load required input for CanMod  ---------------------------------------------------------
