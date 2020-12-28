@@ -482,7 +482,7 @@ cca.module.list = pbapply::pblapply(cl = cluster, X = 1:length(module.expression
                     selected.regulators=selected.regulators,
                     cca.cor = cca.result$cors)
   return(cca.module)
-}); stopCluster(cluster)
+})
 stopCluster(cluster)
 
 cca.target.size = sapply(cca.module.list, function(module){
