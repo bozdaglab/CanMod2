@@ -37,13 +37,13 @@ regression.data = list(mRNA = mRNA, miRNA = miRNA, methyl = methyl, cna = cnv); 
   regression.data$methyl = regression.data$methyl[,samples]
   regression.data$cna = regression.data$cna[,samples]
   #line 35-38 contain the tumor samples corresponding data
-  regression.data$miRNA.target.interactions = putative.miRNA.mRNA.interactions #contains the miRNA-target data from StarBase v2 and TargetScan 7.1
+  regression.data$miRNA.target.interactions = putative.miRNA.mRNA.interactions #contains the miRNA-target data from TargetScan 7.2
   regression.data$miRNA.target.interactions = regression.data$miRNA.target.interactions[regression.data$miRNA.target.interactions$miRNA %in% rownames(regression.data$miRNA),]
-  # line 41 contains the miRNAs common between TCGA and Starbase & TargetScan
+  # line 41 contains the miRNAs common between TCGA and TargetScan
   regression.data$miRNA.target.interactions = regression.data$miRNA.target.interactions[regression.data$miRNA.target.interactions$target %in% rownames(regression.data$mRNA),]
-  #Line 43 contains the miRNAs that have common target between TCGA and Starbase & TargetScan
+  #Line 43 contains the miRNAs that have common target between TCGA and TargetScan
   regression.data$tf.target.interactions = TF.target
-  #line 45 contains the TF-target data from TRED and TTRUST version 1 database
+  #line 45 contains the TF-target data from Dorothea database
   regression.data$tf.target.interactions = regression.data$tf.target.interactions[regression.data$tf.target.interactions$tf %in% rownames(regression.data$mRNA),]
   #line 47 contains transcription factors that are common between TCGA and TF-target interactions
   regression.data$tf.target.interactions = regression.data$tf.target.interactions[regression.data$tf.target.interactions$target %in% rownames(regression.data$mRNA),]
@@ -166,7 +166,7 @@ coefs = pbapply::pblapply(cl = cluster, X = 1:length(mRNA.targets), FUN = functi
     return(coefs)
   })
   
-  # make consistently selected data strucutre
+  # make consistently selected data structure
   normal.lasso.dt = NULL
   dt.list = lapply(1:length(selected.coefs), function(target.index){
     regulators = selected.coefs[[target.index]]
@@ -262,7 +262,6 @@ bt.interval.list = pbapply::pblapply(1:length(mRNA.targets),FUN = function(mRNA.
 names(bt.interval.list) = mRNA.targets
 stopCluster(cluster)
 
-# includes coef.dt and bt.interval.dt for each element (that is, each mRNA.targets)
 regulator.list = lapply(1:length(coefs), function(index){
   gene.name = mRNA.targets[index]
   coef.dt = coefs[[gene.name]]
@@ -277,7 +276,6 @@ save(regulator.list, file =  paste0(cancer.type, "_Step2_regulator.list.rda"))
 
 # STEP 3: cluster regulators based on shared targets similarity -------------------------------------------------------------------
 # load lasso result 
-# confidence as T or F for each regulator-target pair
 regulator.target.pair.list = lapply(1:length(regulator.list), function(gene.index) {
   if(gene.index %% 100 == 0) print(gene.index)
   #print(gene.index)
@@ -324,16 +322,12 @@ regulator.target.pair.list = lapply(1:length(regulator.list), function(gene.inde
   return(gene.coef.stat.dt)
 })
 regulator.target.pair.dt = rbindlist(regulator.target.pair.list)
-# filter pairs if not confident or not selected at least 75 out of 100 times
 regulator.target.pair.dt = regulator.target.pair.dt[which(regulator.target.pair.dt$confidence == T & regulator.target.pair.dt$count >=75)]
-# filter pairs if from CNA or methyl (since they will not be used for further part)
 regulator.target.pair.dt = regulator.target.pair.dt[-which(regulator.target.pair.dt$regulator %in% c("CNA","Methyl"))]
-# positively correlated miRNAs will be removed
 to.removed.indicies = which(grepl(regulator.target.pair.dt$regulator, pattern = "hsa") & regulator.target.pair.dt$median.coef >=0 )  # miRNA with positive coefficients
 regulator.target.pair.dt = regulator.target.pair.dt[-to.removed.indicies]
-# removing the details of lasso, and keep only regulator-target pairs
 lasso.df = regulator.target.pair.dt[,c(1,2)]
-save(lasso.df, regulator.cluster.list, file =  paste0(cancer.type, "_Step3_lasso.df.rda"))
+save(lasso.df, file =  paste0(cancer.type, "_Step3_lasso.df.rda"))
 
 regulation.target.df = matrix(data = 0, 
                               nrow = length(unique(lasso.df$target)),
@@ -366,7 +360,6 @@ regulator.cluster.df = data.frame(regulator=names(regulator.cluster.list), clust
 regulator.cluster.list = lapply(unique(regulator.cluster.df$cluster), function(cluster){
   regulator.cluster.df$regulator[regulator.cluster.df$cluster==cluster]
 })
-# remove regulator clusters with only 1 element
 regulator.cluster.list = regulator.cluster.list[-which(sapply(regulator.cluster.list, function(cluster) length(cluster) == 1 ))]
 
 save(regulator.cluster.list, file =  paste0(cancer.type, "_Step3_regulator.cluster.list.rda"))
@@ -462,9 +455,6 @@ for (i in 1:length(regulator.target.list)){
                                                           regulator.target.list[[i]][[j]])
   }
 }
-
-# Number of module with 1 target
-# sum(sapply(simplified.regulator.target.list, function(module) length(module$targets)) == 1)
 
 save(simplified.regulator.target.list, file =  paste0(cancer.type, "_Step4_simplified.regulator.target.list.rda"))
 
