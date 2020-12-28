@@ -406,34 +406,18 @@ selected.seed.target.list =  lapply(1:length(seed.target.list), function(index){
     seed.partners = seed.list$all.targets.in.cluster
     seed.target.partner.list = lapply(1:length(seed.partners), function(k){
       seed.partner = seed.partners[k]
-      #seed.target = seed.targets[k]
-      if(rlang::is_empty(seed.partners)|| rlang::is_empty(seed.targets))
-      {return()}
-      else{
-        seed.target.cor = expression.cor[seed.partner, seed.targets]
-        if (abs(seed.target.cor) > cor.threshold){
-          selected.partners = seed.partner
-          return(selected.partners)
-        }
-        selected.partners = names(which(abs(seed.target.cor) > cor.threshold))
-        return(selected.partners)
+      seed.target.cor = expression.cor[seed.partner, seed.targets]
+      if(length(seed.targets) == 1 && abs(seed.target.cor) > cor.threshold){
+        return(seed.partner)
       }
+      else if(length(seed.targets) > 1 && length(names(which(abs(seed.target.cor) > cor.threshold))) == length(seed.targets)){
+        return(seed.partner)
+      }
+      return(NULL)
     })
-    #names(seed.target.partner.list) = seed.targets
-    seed.target.partner.list<-rlist:: list.append(seed.target.partner.list, seed.targets)
+    seed.target.partner.list = unique(c(seed.targets, unlist(seed.target.partner.list)))
     return(seed.target.partner.list)
   })
-})
-
-selected.seed.target.list =  lapply(1:length(selected.seed.target.list), function(index){
-  seed.list = selected.seed.target.list[[index]] 
-  seed.list = lapply(1:length(seed.list), function(k){
-    seed.group = seed.list[[k]] # all belong to a same GO-based cluster
-    seed = names(seed.group)
-    seed.group = unique(c(seed, unname(unlist(seed.group))))
-  })
-  names(seed.list) = sapply(seed.list, function(g) g[1])
-  return(seed.list)
 })
 save(selected.seed.target.list, file =  paste0(cancer.type, "_Step4_selected.seed.target.list.rda"))
 
