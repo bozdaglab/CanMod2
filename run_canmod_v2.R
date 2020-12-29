@@ -413,7 +413,7 @@ selected.seed.target.list =  lapply(1:length(seed.target.list), function(index){
       if(length(seed.targets) == 1 && abs(seed.target.cor) > cor.threshold){
         return(seed.partner)
       }
-      else if(length(seed.targets) > 1 && length(names(which(abs(seed.target.cor) > cor.threshold))) == length(seed.targets)){
+      else if(length(seed.targets) > 1 && length(names(which(abs(seed.target.cor) > cor.threshold))) >= 1){
         return(seed.partner)
       }
       return(NULL)
