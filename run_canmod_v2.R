@@ -1,6 +1,3 @@
-# install.packages("HDCI")
-# install.packages("pbapply")
-# install.packages("doParallel")
 library(PMA)
 library(pbapply)
 library(HDCI)
@@ -36,18 +33,12 @@ regression.data = list(mRNA = mRNA, miRNA = miRNA, methyl = methyl, cna = cnv); 
   regression.data$miRNA = regression.data$miRNA[,samples]
   regression.data$methyl = regression.data$methyl[,samples]
   regression.data$cna = regression.data$cna[,samples]
-  #line 35-38 contain the tumor samples corresponding data
   regression.data$miRNA.target.interactions = putative.miRNA.mRNA.interactions #contains the miRNA-target data from TargetScan 7.2
   regression.data$miRNA.target.interactions = regression.data$miRNA.target.interactions[regression.data$miRNA.target.interactions$miRNA %in% rownames(regression.data$miRNA),]
-  # line 41 contains the miRNAs common between TCGA and TargetScan
   regression.data$miRNA.target.interactions = regression.data$miRNA.target.interactions[regression.data$miRNA.target.interactions$target %in% rownames(regression.data$mRNA),]
-  #Line 43 contains the miRNAs that have common target between TCGA and TargetScan
   regression.data$tf.target.interactions = TF.target
-  #line 45 contains the TF-target data from Dorothea database
   regression.data$tf.target.interactions = regression.data$tf.target.interactions[regression.data$tf.target.interactions$tf %in% rownames(regression.data$mRNA),]
-  #line 47 contains transcription factors that are common between TCGA and TF-target interactions
   regression.data$tf.target.interactions = regression.data$tf.target.interactions[regression.data$tf.target.interactions$target %in% rownames(regression.data$mRNA),]
-  #line 49 contains transcription factor's target that are common between TCGA and TF-target interactions
   rownames(regression.data$miRNA) = gsub(rownames(regression.data$miRNA), pattern = "[-]", replacement = ".")
   regression.data$miRNA.target.interactions$miRNA = gsub(regression.data$miRNA.target.interactions$miRNA, pattern = "[-]", replacement = ".")
 }
@@ -64,16 +55,13 @@ time = proc.time()
 de.gene.bp.sim = mgeneSim(de.genes, semData=hsGO2, measure="Wang", combine="BMA", verbose=FALSE, drop = NULL)
 time = proc.time() - time
 cat("running time for computing gene similarity based on GO:", time[3])
-
 cat("Done with obtaining similarity matrix in cluster_de_genes for", cancer.type, "\n") 
-save(de.gene.bp.sim, file =  paste0(cancer.type, "_Step1_de.gene.bp.sim.rda"))
 
 # cluster de gene by GO similarity 
 time = proc.time()
 de.gene.bp.cluster = apcluster(s = de.gene.bp.sim, details = T, maxits = 10000, convits = 100)
 time = proc.time() - time
 cat("running time for computing gene similarity based clusters:", time[3])
-save(de.gene.bp.cluster, file =  paste0(cancer.type, "_Step1_de.gene.bp.cluster.rda"))
 
 de.gene.bp.cluster.list = lapply(1:length(de.gene.bp.cluster@clusters), function(index){
   cluster = names(de.gene.bp.cluster@clusters[[index]])
@@ -96,9 +84,6 @@ target.cluster.list = de.gene.bp.cluster.list
 
 names(target.cluster.list) = as.character(1:length(target.cluster.list))
 target.cluster.df = list2df(target.cluster.list); names(target.cluster.df) = c("target","cluster")
-
-save(target.cluster.list, file =  paste0(cancer.type, "_Step1_target.cluster.list.rda"))
-save(target.cluster.df, file =  paste0(cancer.type, "_Step1_target.cluster.df.rda"))
 
 # STEP 2: variable selection -----------------------------------
 mRNA.targets = rownames(regression.data$mRNA)
@@ -270,10 +255,6 @@ regulator.list = lapply(1:length(coefs), function(index){
 })
 names(regulator.list) = mRNA.targets
 
-save(coefs, file =  paste0(cancer.type, "_Step2_coefs.rda"))
-save(bt.interval.list, file =  paste0(cancer.type, "_Step2_bt.interval.list.rda"))
-save(regulator.list, file =  paste0(cancer.type, "_Step2_regulator.list.rda"))
-
 # STEP 3: cluster regulators based on shared targets similarity -------------------------------------------------------------------
 # load lasso result 
 regulator.target.pair.list = lapply(1:length(regulator.list), function(gene.index) {
@@ -327,7 +308,6 @@ regulator.target.pair.dt = regulator.target.pair.dt[-which(regulator.target.pair
 to.removed.indicies = which(grepl(regulator.target.pair.dt$regulator, pattern = "hsa") & regulator.target.pair.dt$median.coef >=0 )  # miRNA with positive coefficients
 regulator.target.pair.dt = regulator.target.pair.dt[-to.removed.indicies]
 lasso.df = regulator.target.pair.dt[,c(1,2)]
-save(lasso.df, file =  paste0(cancer.type, "_Step3_lasso.df.rda"))
 
 regulation.target.df = matrix(data = 0, 
                               nrow = length(unique(lasso.df$target)),
@@ -347,24 +327,20 @@ dim(regulation.target.df)
 # cluster regulators based on shared targets similarity
 {
   df = t(regulation.target.df)
-  d <- dist(df, method = "binary")
-  hc <- hclust(d)
-  # plot(hc)
-  # labels at the same level
-  # plot(hc, hang = -1)
-  regulator.cluster.list = cutree(hc, h = max(hc$height[which(hc$height < 1)]))
+  d <- dist(df, method = "binary") # proxy::dist(df, method = "Jaccard")
+  d2 = as.matrix(d)
+  s = 1-d2
+  reg.clusters = apcluster(s = s, details = T, maxits = 10000, convits = 100)
+  regulator.cluster.list = lapply(1:length(reg.clusters@clusters), function(index){
+    cluster = names(reg.clusters@clusters[[index]])
+    return(cluster)
+  })
+  regulator.cluster.df = list2df(regulator.cluster.list)
+  names(regulator.cluster.df) = c("regulator","cluster")
 }
-
-# cluster of regulators
-regulator.cluster.df = data.frame(regulator=names(regulator.cluster.list), cluster = unname(regulator.cluster.list),stringsAsFactors = F)
-regulator.cluster.list = lapply(unique(regulator.cluster.df$cluster), function(cluster){
-  regulator.cluster.df$regulator[regulator.cluster.df$cluster==cluster]
-})
-regulator.cluster.list = regulator.cluster.list[-which(sapply(regulator.cluster.list, function(cluster) length(cluster) == 1 ))]
-
-save(regulator.cluster.list, file =  paste0(cancer.type, "_Step3_regulator.cluster.list.rda"))
-save(regulator.cluster.df, file =  paste0(cancer.type, "_Step3_regulator.cluster.df.rda"))
-
+if(sum(sapply(regulator.cluster.list, function(cluster) length(cluster) == 1 ))>0){
+  regulator.cluster.list = regulator.cluster.list[-which(sapply(regulator.cluster.list, function(cluster) length(cluster) == 1 ))]
+}
 
 # STEP 4: Generate candidate modules ------------------------------------------------------------------------
 # for each regulator cluster, recruit targets
@@ -377,7 +353,6 @@ regulator.target.cluster.list = lapply(1:length(regulator.cluster.list), functio
   #table(regulator.target.dt$target)
   return(regulator.target.dt)
 }) 
-save(regulator.target.cluster.list, file =  paste0(cancer.type, "_Step4_regulator.target.cluster.list.rda"))
   
 # for each regulator cluster, create list of GO-based clusters, whose elments are seed gene 
 seed.target.list = lapply(1:length(regulator.target.cluster.list), function(k){
@@ -392,7 +367,6 @@ seed.target.list = lapply(1:length(regulator.target.cluster.list), function(k){
   })
   return(target.clusters)
 })
-save(seed.target.list, file =  paste0(cancer.type, "_Step4_seed.target.list.rda"))
 
 expression.df<-rbind(regression.data$mRNA,regression.data$miRNA)
 expression.cor<-cor(as.data.frame(t(regression.data$mRNA)))
@@ -422,7 +396,6 @@ selected.seed.target.list =  lapply(1:length(seed.target.list), function(index){
     return(seed.target.partner.list)
   })
 })
-save(selected.seed.target.list, file =  paste0(cancer.type, "_Step4_selected.seed.target.list.rda"))
 
 regulator.target.list =  lapply(1:length(regulator.cluster.list), function(index){
   regulators = regulator.cluster.list[[index]]
@@ -432,7 +405,6 @@ regulator.target.list =  lapply(1:length(regulator.cluster.list), function(index
   })
   return(regulator.target.list)
 })
-save(regulator.target.list, file =  paste0(cancer.type, "_Step4_regulator.target.list.rda"))
 
 count = 0
 simplified.regulator.target.list = list()
@@ -442,8 +414,6 @@ for (i in 1:length(regulator.target.list)){
                                                           regulator.target.list[[i]][[j]])
   }
 }
-
-save(simplified.regulator.target.list, file =  paste0(cancer.type, "_Step4_simplified.regulator.target.list.rda"))
 
 # Step 5: refine module using SCCA ----------------------------------------------------------------------------------------------
 module.expression.list = lapply(1:length(simplified.regulator.target.list), function(index){
@@ -491,7 +461,6 @@ cca.target.size = sapply(cca.module.list, function(module){
 cca.regulator.size = sapply(cca.module.list, function(module){
   return(length(module$selected.regulators))
 })
-# remove module whose 
 to.removed.indices =  which(cca.target.size == 1)
 
 if (length(to.removed.indices) > 0){
@@ -518,34 +487,19 @@ for (row.index in 1:nrow(target.module.df)){
   target.module.df[target,modules] = 1
 }
 
-length(which(target.module.df != 0))
-save(module.expression.list, file = paste0(cancer.type, "_Step5_module.expression.list.rda"))
-save(cca.module.list, file = paste0(cancer.type, "_Step5_cca.module.list.rda"))
-save(filtered.cca.target.list, file = paste0(cancer.type, "_Step5_filtered.cca.target.list.rda"))
-save(filtered.cca.target.df, file = paste0(cancer.type, "_Step5_filtered.cca.target.df.rda"))
-save(target.module.df, file = paste0(cancer.type, "_Step5_target.module.df.rda"))
-
 # Step 6: cluster modules by shared target -----------------------------------------------------
 {
   df = target.module.df
   d <- dist(t(df), method = "binary")
-  module.distance = d 
-  hc <- hclust(module.distance)
-  plot(hc)
-  hist(hc$height)
-  module.cluster.list = cutree(hc, h = max(hc$height[which(hc$height < 1)]))
-  table(module.cluster.list)
-  
-  #module.cluster.list = cutree(hc, h = 1)
-  #length(module.cluster.list)
-  
-  
-  module.cluster.df = data.frame(module=names(module.cluster.list), cluster = unname(module.cluster.list),stringsAsFactors = F)
-  summary(as.vector(table(regulator.cluster.df$cluster)))
-  
-  module.cluster.list = lapply(unique(module.cluster.df$cluster), function(cluster){
-    module.cluster.df$module[module.cluster.df$cluster==cluster]
+  d2 = as.matrix(d)
+  s = 1-d2
+  mod.clusters = apcluster(s = s, details = T, maxits = 10000, convits = 100)
+  module.cluster.list = lapply(1:length(mod.clusters@clusters), function(index){
+    cluster = names(mod.clusters@clusters[[index]])
+    return(cluster)
   })
+  module.cluster.df = list2df(module.cluster.list)
+  names(module.cluster.df) = c("module","cluster")
 }
 # for each cluster modules, recruit back targets 
 final.module.list = lapply(1:length(module.cluster.list), function(index){
@@ -562,56 +516,4 @@ final.module.list = lapply(1:length(module.cluster.list), function(index){
   return(list(regulators = combined.regulators, targets = combined.targets))
 })
 
-length(final.module.list)
-
-regulator.size = sapply(final.module.list, function(module){
-  length(module$regulators)
-})
-summary(regulator.size)
-
-target.size = sapply(final.module.list, function(module){
-  length(module$targets)
-})
-summary(target.size)
-
-
-{
-  hc <- hclust(module.distance)
-  plot(hc)
-  hist(hc$height)
-  module.cluster.list = cutree(hc, h = max(hc$height[which(hc$height < 1)]))
-  table(module.cluster.list)
-  sum(table(module.cluster.list))
-  
-  module.cluster.list = cutree(hc, h = 1)
-  table(module.cluster.list)
-  sum(table(module.cluster.list))
-  
-  dtc.module.cluster.list = dynamicTreeCut::cutreeDynamicTree(hc, minModuleSize= 1)
-  table(dtc.module.cluster.list)
-  names(dtc.module.cluster.list) = 1:length(dtc.module.cluster.list)
-  
-  dtc.module.cluster.df = data.frame(module=names(dtc.module.cluster.list), cluster = unname(dtc.module.cluster.list),stringsAsFactors = F)
-  summary(as.vector(table(dtc.module.cluster.df$cluster)))
-  
-  dtc.module.cluster.list = lapply(unique(dtc.module.cluster.df$cluster), function(cluster){
-    dtc.module.cluster.df$module[dtc.module.cluster.df$cluster==cluster]
-  })
-  
-  # for each cluster modules, recruit back targets 
-  dtc.final.module.list = lapply(1:length(dtc.module.cluster.list), function(index){
-    modules = as.numeric(dtc.module.cluster.list[[index]])
-    dtc.detailed.modules = filtered.cca.module.list[modules]
-    combined.regulators = lapply(dtc.detailed.modules, function(module){
-      module$selected.regulators
-    })
-    combined.regulators = unique(unlist(combined.regulators))
-    combined.targets = lapply(dtc.detailed.modules, function(module){
-      module$selected.targets
-    }) 
-    combined.targets = unique(unlist(combined.targets))
-    return(list(regulators = combined.regulators, targets = combined.targets))
-  })
-}
-
-save(module.cluster.df, final.module.list, dtc.module.cluster.list, dtc.final.module.list, file = paste0(cancer.type, "_Step6.rda"))
+save(final.module.list, file = paste0(cancer.type, "_modules.rda"))
