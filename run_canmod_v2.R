@@ -1,13 +1,3 @@
-library(PMA)
-library(pbapply)
-library(HDCI)
-library(data.table)
-library(bnlearn)
-library(doParallel)
-library(parallel)
-library(qdapTools)
-library(GOSemSim)
-library(apcluster)
 # Load utility functions to run CanMod ----------------------------------------------------
 source("helper_functions_v2.R")
 
@@ -327,7 +317,7 @@ dim(regulation.target.df)
 # cluster regulators based on shared targets similarity
 {
   df = t(regulation.target.df)
-  d <- dist(df, method = "binary") # proxy::dist(df, method = "Jaccard")
+  d <- dist(df, method = "binary")
   d2 = as.matrix(d)
   s = 1-d2
   reg.clusters = apcluster(s = s, details = T, maxits = 10000, convits = 100)
@@ -353,7 +343,7 @@ regulator.target.cluster.list = lapply(1:length(regulator.cluster.list), functio
   #table(regulator.target.dt$target)
   return(regulator.target.dt)
 }) 
-  
+
 # for each regulator cluster, create list of GO-based clusters, whose elments are seed gene 
 seed.target.list = lapply(1:length(regulator.target.cluster.list), function(k){
   regulator.cluster =  regulator.target.cluster.list[[k]]
@@ -369,11 +359,14 @@ seed.target.list = lapply(1:length(regulator.target.cluster.list), function(k){
 })
 
 expression.df<-rbind(regression.data$mRNA,regression.data$miRNA)
-expression.cor<-cor(as.data.frame(t(regression.data$mRNA)))
-cor.threshold = quantile(expression.cor, 0.9)
+expression.cor <- cor(as.data.frame(t(regression.data$mRNA)))
+cor.threshold = quantile(abs(expression.cor), 0.9)
+expression.cor <- cor(as.data.frame(t(expression.df)))
+cor.threshold.reg = quantile(abs(expression.cor), 0.9)
 
 selected.seed.target.list =  lapply(1:length(seed.target.list), function(index){
   overall.seed.list =  seed.target.list[[index]]
+  seed.regulators = regulator.cluster.list[[index]]
   seed.partner.list = lapply(1:length(overall.seed.list), function(i){
     seed.list = overall.seed.list[[i]]
     seed.targets = seed.list$seed.targets
@@ -384,10 +377,12 @@ selected.seed.target.list =  lapply(1:length(seed.target.list), function(index){
     seed.target.partner.list = lapply(1:length(seed.partners), function(k){
       seed.partner = seed.partners[k]
       seed.target.cor = expression.cor[seed.partner, seed.targets]
-      if(length(seed.targets) == 1 && abs(seed.target.cor) > cor.threshold){
+      seed.reg.cor = expression.cor[seed.partner, seed.regulators]
+      if(length(seed.targets) == 1 && ((abs(seed.target.cor) > cor.threshold) ||  (abs(seed.reg.cor) > cor.threshold.reg)) ){
         return(seed.partner)
       }
-      else if(length(seed.targets) > 1 && length(names(which(abs(seed.target.cor) > cor.threshold))) >= 1){
+      else if(length(seed.targets) > 1 && ((length(names(which(abs(seed.target.cor) > cor.threshold))) >= 1) || 
+                                           (length(names(which(abs(seed.reg.cor) > cor.threshold.reg))) >= 1)) ){
         return(seed.partner)
       }
       return(NULL)
@@ -396,7 +391,6 @@ selected.seed.target.list =  lapply(1:length(seed.target.list), function(index){
     return(seed.target.partner.list)
   })
 })
-
 regulator.target.list =  lapply(1:length(regulator.cluster.list), function(index){
   regulators = regulator.cluster.list[[index]]
   target.list = selected.seed.target.list[[index]]
@@ -406,7 +400,7 @@ regulator.target.list =  lapply(1:length(regulator.cluster.list), function(index
   return(regulator.target.list)
 })
 
-count = 0
+
 simplified.regulator.target.list = list()
 for (i in 1:length(regulator.target.list)){
   for (j in 1:length(regulator.target.list[[i]])){
@@ -415,7 +409,8 @@ for (i in 1:length(regulator.target.list)){
   }
 }
 
-# Step 5: refine module using SCCA ----------------------------------------------------------------------------------------------
+
+# Step 5: refine module using biclustering ----------------------------------------------------------------------------------------------
 module.expression.list = lapply(1:length(simplified.regulator.target.list), function(index){
   module = simplified.regulator.target.list[[index]]
   target.df = expression.df[module$targets,, drop = F]
@@ -424,87 +419,170 @@ module.expression.list = lapply(1:length(simplified.regulator.target.list), func
                 regulator.df=regulator.df)
 })
 
-cluster = parallel::makeCluster(detectCores()-5)
-parallel::clusterExport(cl = cluster,
-                        varlist = c("module.expression.list"),
-                        envir = environment())
-invisible(parallel::clusterEvalQ(cl = cluster,expr = library(PMA)))
-cca.module.list = pbapply::pblapply(cl = cluster, X = 1:length(module.expression.list), FUN = function(index){
-  cat("Module: " , index, "\n")
-  module.expression = module.expression.list[[index]]  
-  
-  target.df = module.expression$target.df
-  regulator.df = module.expression$regulator.df
-  
-  if (nrow(target.df) == 1 || nrow(regulator.df) == 1){
-    cca.module = list(selected.targets=rownames(target.df), selected.regulators=rownames(regulator.df))
-    return(cca.module)
-  }
-  
-  perm.out = PMA::CCA.permute(t(target.df), t(regulator.df), nperms = 10)
-  cca.result = PMA::CCA(t(target.df), t(regulator.df), 
-                        penaltyx=perm.out$bestpenaltyx,
-                        penaltyz=perm.out$bestpenaltyz)
-  
-  selected.targets = rownames(target.df)[which(cca.result$u[,1] != 0)]
-  selected.regulators = rownames(regulator.df)[which(cca.result$v[,1] != 0)]
-  cca.module = list(selected.targets=selected.targets, 
-                    selected.regulators=selected.regulators,
-                    cca.cor = cca.result$cors)
-  return(cca.module)
-})
-stopCluster(cluster)
-
-cca.target.size = sapply(cca.module.list, function(module){
-  return(length(module$selected.targets))
-})
-cca.regulator.size = sapply(cca.module.list, function(module){
-  return(length(module$selected.regulators))
-})
-to.removed.indices =  which(cca.target.size == 1)
-
-if (length(to.removed.indices) > 0){
-  filtered.cca.module.list = cca.module.list[-to.removed.indices]  
-}
-
-filtered.cca.target.list = lapply(filtered.cca.module.list, function(module){
-  module$selected.targets
-})
-filtered.cca.target.df = qdapTools::list2df(filtered.cca.target.list)
-colnames(filtered.cca.target.df) = c("target","module")
-
-target.module.df = matrix(data = 0, 
-                          nrow = length(unique(filtered.cca.target.df$target)),
-                          ncol = length(unique(filtered.cca.target.df$module)),
-                          dimnames = list(unique(filtered.cca.target.df$target),
-                                          unique(filtered.cca.target.df$module)))
-
-target.module.df = as.data.frame(target.module.df)
-for (row.index in 1:nrow(target.module.df)){
-  if (row.index %% 100 == 0) print(row.index)
-  target = rownames(target.module.df)[row.index]
-  modules = filtered.cca.target.df$module[which(filtered.cca.target.df$target == target)]
-  target.module.df[target,modules] = 1
-}
-
-# Step 6: cluster modules by shared target -----------------------------------------------------
 {
-  df = target.module.df
-  d <- dist(t(df), method = "binary")
-  d2 = as.matrix(d)
-  s = 1-d2
-  mod.clusters = apcluster(s = s, details = T, maxits = 10000, convits = 100)
-  module.cluster.list = lapply(1:length(mod.clusters@clusters), function(index){
-    cluster = names(mod.clusters@clusters[[index]])
-    return(cluster)
+  {
+    my.delta = 0.0001
+    my.alpha=1.5
+    my.number=50
+    
+    means = vector()
+    for(index in 1:length(module.expression.list)){
+      module <- module.expression.list[[index]]
+      exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df), drop = F]
+      exp = as.matrix(abs(exp.values))
+      if(ncol(exp)>1 && nrow(exp)>1){
+        testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number)
+        for(x in 1:ncol(testCluster@RowxNumber)){
+          if(is.na(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[3])){
+            means = c(means, summary(as.vector(exp[rownames(exp), colnames(exp)]))[4])
+          }else{
+            means = c(means, summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[4])
+          }
+        }
+      }else{
+        means = c(means, summary(as.vector(exp[rownames(exp), colnames(exp)]))[4])
+      }
+    }
+    thr = unname(summary(means)[2])
+    my.modules = simplified.regulator.target.list
+    for(index in 1:length(module.expression.list)){
+      module <- module.expression.list[[index]]
+      exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df)]
+      exp = as.matrix(abs(exp.values))
+      if(ncol(exp)>1 && nrow(exp)>1){
+        testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number)
+        cluster.toremove = vector()
+        for(x in 1:ncol(testCluster@RowxNumber)){
+          if(is.na(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[3])){
+          }else{
+            if(unname(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[4]) < thr){
+              cluster.toremove = c(cluster.toremove, x)
+            }
+          }
+        }
+        
+        if(length(cluster.toremove) == ncol(testCluster@RowxNumber)){
+          my.modules[[index]]$regulators = NA
+          my.modules[[index]]$targets = NA
+        }else{
+          cluster.tokeep = setdiff(1:ncol(testCluster@RowxNumber), cluster.toremove)
+          selection.tar = t(testCluster@RowxNumber)
+          selection.reg = testCluster@NumberxCol
+          my.modules[[index]]$regulators = colnames(exp)[colSums(selection.reg[cluster.tokeep,,drop = F])>0]
+          my.modules[[index]]$targets = rownames(exp)[colSums(selection.tar[cluster.tokeep,,drop = F])>0]
+        }
+      }else{
+      }
+    }
+  }
+  my.modules1 = my.modules; rm(my.modules)
+  
+  {
+    means = vector()
+    for(index in 1:length(module.expression.list)){
+      module <- module.expression.list[[index]]
+      exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df), drop = F]
+      exp = t(as.matrix(abs(exp.values)))
+      if(ncol(exp)>1 && nrow(exp)>1){
+        testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number)
+        for(x in 1:ncol(testCluster@RowxNumber)){
+          if(is.na(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[3])){
+            means = c(means, summary(as.vector(exp[rownames(exp), colnames(exp)]))[4])
+          }else{
+            means = c(means, summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[4])
+          }
+        }
+      }else{
+        means = c(means, summary(as.vector(exp[rownames(exp), colnames(exp)]))[4])
+      }
+    }
+    
+    thr = unname(summary(means)[2])
+    my.modules = simplified.regulator.target.list
+    for(index in 1:length(module.expression.list)){
+      module <- module.expression.list[[index]]
+      exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df)]
+      exp = t(as.matrix(abs(exp.values)))
+      
+      if(ncol(exp)>1 && nrow(exp)>1){
+        testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number) 
+        
+        cluster.toremove = vector()
+        
+        for(x in 1:ncol(testCluster@RowxNumber)){
+          if(is.na(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[3])){
+          }else{
+            if(unname(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[4]) < thr){
+              cluster.toremove = c(cluster.toremove, x)
+            }
+          }
+        }
+        
+        if(length(cluster.toremove) == ncol(testCluster@RowxNumber)){
+          my.modules[[index]]$regulators = NA
+          my.modules[[index]]$targets = NA
+        }else{
+          cluster.tokeep = setdiff(1:ncol(testCluster@RowxNumber), cluster.toremove)
+          
+          selection.reg = t(testCluster@RowxNumber)
+          selection.tar = testCluster@NumberxCol
+          
+          my.modules[[index]]$targets = colnames(exp)[colSums(selection.tar[cluster.tokeep,,drop = F])>0]
+          my.modules[[index]]$regulators = rownames(exp)[colSums(selection.reg[cluster.tokeep,,drop = F])>0]
+        }
+      }else{
+      }
+    }
+  }
+  my.modules2 = my.modules; rm(my.modules)
+  
+  my.modules = mapply(function(x, y) {list(list(selected.regulators = setdiff(union(x$regulators, y$regulators), NA), 
+                                                selected.targets = setdiff(union(x$targets, y$targets), NA)))}, my.modules1, my.modules2)
+  
+  toremove = unlist(sapply(my.modules, function(m) (length(m$selected.regulators) == 0 || length(m$selected.targets) == 0)||is.na(m$selected.regulators)[1] || is.na(m$selected.targets)[1]))
+  simplified.regulator.target.list = my.modules[!toremove]
+  module.expression.list = lapply(1:length(simplified.regulator.target.list), function(index){
+    module = simplified.regulator.target.list[[index]]
+    target.df = expression.df[module$selected.targets,, drop = F]
+    regulator.df = expression.df[module$selected.regulators,, drop = F]
+    module = list(target.df=target.df,
+                  regulator.df=regulator.df)
   })
-  module.cluster.df = list2df(module.cluster.list)
-  names(module.cluster.df) = c("module","cluster")
+  
+  filtered.bic.module.list = simplified.regulator.target.list
+  filtered.bic.target.list = lapply(filtered.bic.module.list, function(module){
+    module$selected.targets
+  })
+  filtered.bic.target.df = qdapTools::list2df(filtered.bic.target.list)
+  colnames(filtered.bic.target.df) = c("target","module")
+  
+  target.module.df = matrix(data = 0, 
+                            nrow = length(unique(filtered.bic.target.df$target)),
+                            ncol = length(unique(filtered.bic.target.df$module)),
+                            dimnames = list(unique(filtered.bic.target.df$target),
+                                            unique(filtered.bic.target.df$module)))
+  
+  target.module.df = as.data.frame(target.module.df)
+  for (row.index in 1:nrow(target.module.df)){
+    if (row.index %% 100 == 0) print(row.index)
+    target = rownames(target.module.df)[row.index]
+    modules = filtered.bic.target.df$module[which(filtered.bic.target.df$target == target)]
+    target.module.df[target,modules] = 1
+  }
+}
+
+# Step 6: cluster modules by shared target 
+{
+  sm = reshape2::melt(1-as.matrix(dist(t(target.module.df), method = "binary")))
+  sm = sm[sm$value > 0.25,]
+  graph = graph_from_data_frame(sm[,c(1, 2)], directed = F) %>%
+    set_edge_attr("weight", value = as.numeric(sm$value))
+  module.cluster.list = as.list(cluster_walktrap(graph, weights =  E(graph)$weight)); rm(sm, d, df, graph)
 }
 # for each cluster modules, recruit back targets 
 final.module.list = lapply(1:length(module.cluster.list), function(index){
   modules = as.numeric(module.cluster.list[[index]])
-  detailed.modules = filtered.cca.module.list[modules]
+  detailed.modules = filtered.bic.module.list[modules]
   combined.regulators = lapply(detailed.modules, function(module){
     module$selected.regulators
   })

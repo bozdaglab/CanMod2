@@ -6,6 +6,10 @@ library(parallel)
 library(HDCI)
 library(glmnet)
 library(bnlearn)
+library(PMA)
+library(qdapTools)
+library(GOSemSim)
+library(apcluster)
 
 # get regression df for each mRNA with cna, methyl, TF and miRNA included as candidate regulators
 getDF = function(regression.data, mRNA, include.lncRNA = F){
