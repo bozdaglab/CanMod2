@@ -314,23 +314,23 @@ for (row.index in 1:nrow(regulation.target.df)){
 }
 dim(regulation.target.df)
 
+RC_thr = 0.25
 # cluster regulators based on shared targets similarity
 {
-  df = t(regulation.target.df)
-  d <- dist(df, method = "binary")
-  d2 = as.matrix(d)
-  s = 1-d2
-  reg.clusters = apcluster(s = s, details = T, maxits = 10000, convits = 100)
-  regulator.cluster.list = lapply(1:length(reg.clusters@clusters), function(index){
-    cluster = names(reg.clusters@clusters[[index]])
-    return(cluster)
+  sm = reshape2::melt(1-as.matrix(dist(regulation.target.df, method = "binary")))
+  sm = sm[sm$value > RC_thr,]
+  graph = graph_from_data_frame(sm[,c(1, 2)], directed = F) %>%
+    set_edge_attr("weight", value = as.numeric(sm$value))
+  rc.list = as.list(cluster_walktrap(graph, weights =  E(graph)$weight))
+  regulator.cluster.list = lapply(1:length(rc.list), function(index){
+    rc.list[[index]]
   })
   regulator.cluster.df = list2df(regulator.cluster.list)
   names(regulator.cluster.df) = c("regulator","cluster")
 }
-if(sum(sapply(regulator.cluster.list, function(cluster) length(cluster) == 1 ))>0){
-  regulator.cluster.list = regulator.cluster.list[-which(sapply(regulator.cluster.list, function(cluster) length(cluster) == 1 ))]
-}
+# if(sum(sapply(regulator.cluster.list, function(cluster) length(cluster) == 1 ))>0){
+#   regulator.cluster.list = regulator.cluster.list[-which(sapply(regulator.cluster.list, function(cluster) length(cluster) == 1 ))]
+# }
 
 # STEP 4: Generate candidate modules ------------------------------------------------------------------------
 # for each regulator cluster, recruit targets
