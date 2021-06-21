@@ -317,11 +317,10 @@ dim(regulation.target.df)
 RC_thr = 0.25
 # cluster regulators based on shared targets similarity
 {
-  sm = reshape2::melt(1-as.matrix(dist(regulation.target.df, method = "binary")))
+  sm = reshape2::melt(1-as.matrix(dist(t(regulation.target.df), method = "binary")))
   sm = sm[sm$value > RC_thr,]
-  graph = graph_from_data_frame(sm[,c(1, 2)], directed = F) %>%
-    set_edge_attr("weight", value = as.numeric(sm$value))
-  rc.list = as.list(cluster_walktrap(graph, weights =  E(graph)$weight))
+  graph = graph_from_data_frame(sm[,c(1, 2)], directed = F)
+  rc.list = as.list(cluster_walktrap(graph))
   regulator.cluster.list = lapply(1:length(rc.list), function(index){
     rc.list[[index]]
   })
