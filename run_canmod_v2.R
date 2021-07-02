@@ -312,15 +312,15 @@ for (row.index in 1:nrow(regulation.target.df)){
   regulators = lasso.df$regulator[which(lasso.df$target == target)]
   regulation.target.df[target,regulators] = 1
 }
-dim(regulation.target.df)
 
-RC_thr = 0.25
+RC_thr = 0.20
 # cluster regulators based on shared targets similarity
 {
   sm = reshape2::melt(1-as.matrix(dist(t(regulation.target.df), method = "binary")))
+  sm = sm[sm$Var1 != sm$Var2,]
   sm = sm[sm$value > RC_thr,]
-  graph = graph_from_data_frame(sm[,c(1, 2)], directed = F)
-  rc.list = as.list(cluster_walktrap(graph))
+  graph = graph_from_data_frame(sm[,c(1, 2)], directed = F) %>% set_edge_attr("weight", value = as.numeric(sm$value))
+  rc.list = as.list(cluster_walktrap(graph, weights =  E(graph)$weight))
   regulator.cluster.list = lapply(1:length(rc.list), function(index){
     rc.list[[index]]
   })
