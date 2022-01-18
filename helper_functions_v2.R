@@ -27,7 +27,7 @@ getDF = function(regression.data, mRNA, include.lncRNA = F){
   mrna.expression.vector = regression.data$mRNA[mRNA,]
   mrna.cna.vector = regression.data$cna[mRNA,]
   mrna.methyl.vector = regression.data$methyl[mRNA,]
-  predicted.TF.df = regression.data$mRNA[TF.candidates,]
+  predicted.TF.df = regression.data$exp[TF.candidates,]
   predicted.miRNA.df = regression.data$miRNA[miRNA.candidates,]
   
   
