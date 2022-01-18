@@ -66,7 +66,7 @@ save(de.gene.bp.sim, file =  paste0(cancer.type, "_Step1_de.gene.bp.sim.rda"))
 de.gene.bp.sim.new<-de.gene.bp.sim
 
 # cluster de genes based on GO similarity with weighted Walktrap algorithm to generate GC Clusters
-GC_thr = 0.45 #try with both 0.60 & 0.55
+GC_thr = 0.45
 sm = reshape2::melt(de.gene.bp.sim.new)
 sm = sm[sm$Var1 != sm$Var2,]
 sm = sm[sm$value > GC_thr,]
@@ -87,11 +87,11 @@ common.de.genes <- unique(unlist(de.gene.bp.cluster.list))
 
 # Update regression data based on common de genes after getting GO-based similarity results
 {
+  regression.data$exp = regression.data$mRNA
   regression.data$mRNA = regression.data$mRNA[rownames(regression.data$mRNA) %in% common.de.genes,]
   regression.data$methyl = regression.data$methyl[rownames(regression.data$methyl) %in% common.de.genes,]
   regression.data$cna = regression.data$cna[rownames(regression.data$cna) %in% common.de.genes,]
   regression.data$miRNA.target.interactions = regression.data$miRNA.target.interactions[regression.data$miRNA.target.interactions$target %in% rownames(regression.data$mRNA),]
-  #regression.data$tf.target.interactions = regression.data$tf.target.interactions[regression.data$tf.target.interactions$tf %in% rownames(regression.data$mRNA),]
   regression.data$tf.target.interactions = regression.data$tf.target.interactions[regression.data$tf.target.interactions$target %in% rownames(regression.data$mRNA),]
 }
 
@@ -211,7 +211,6 @@ coefs = pbapply::pblapply(cl = cluster, X = 1:length(mRNA.targets), FUN = functi
 names(coefs) = mRNA.targets
 
 #get bootstrap interval
-
 bt.interval.list = pbapply::pblapply(1:length(mRNA.targets),FUN = function(mRNA.index){
   if (mRNA.index %% 100 == 0) cat(mRNA.index, "\n")
   mRNA = mRNA.targets[mRNA.index]
@@ -359,7 +358,6 @@ dim(regulation.target.df)
 RC_thr = 0.10
 # cluster regulators based on shared targets similarity
 {
-  #sm = reshape2::melt(as.matrix(distance(t(regulation.target.df), method = "jaccard",use.row.names = TRUE)))
   sm = reshape2::melt(1-as.matrix(dist(t(regulation.target.df), method = "binary")))
   sm = sm[sm$Var1 != sm$Var2,]
   sm = sm[sm$value > RC_thr,]
@@ -383,8 +381,6 @@ regulator.target.cluster.list = lapply(1:length(regulator.cluster.list), functio
   regulator.target.dt = lasso.df[lasso.df$regulator %in% regulators]
   regulator.target.dt = regulator.target.dt[regulator.target.dt$target %in% unique(target.cluster.df$target)]
   regulator.target.dt$cluster = as.numeric(target.cluster.df$cluster[match(regulator.target.dt$target, target.cluster.df$target)])
-  #table(regulator.target.dt$regulator)
-  #table(regulator.target.dt$target)
   return(regulator.target.dt)
 }) 
 save(regulator.target.cluster.list, file =  paste0(cancer.type, "_Step4_regulator.target.cluster.list.45.rc10.rda"))
@@ -462,7 +458,6 @@ save(simplified.regulator.target.list, file =  paste0(cancer.type, "_Step4_simpl
 
 
 # Step 5: refine module using biclustering ----------------------------------------------------------------------------------------------
-##############STEP5###################
 module.expression.list = lapply(1:length(simplified.regulator.target.list), function(index){
   module = simplified.regulator.target.list[[index]]
   target.df = expression.df[module$targets,, drop = F]
@@ -641,16 +636,14 @@ module.expression.list = lapply(1:length(simplified.regulator.target.list), func
   }
 }
 save(filtered.bic.module.list, file = paste0(cancer.type, "_Step5_filtered.bic.module.list.rda"))
-##############STEP6####################
 
+# STEP 6 -------------------------------------------------------------------
 {
   sm = reshape2::melt(1-as.matrix(dist(t(target.module.df), method = "binary")))
   sm = sm[sm$value >=0.8,]
   graph = graph_from_data_frame(sm[,c(1, 2)], directed = F) %>%
     set_edge_attr("weight", value = as.numeric(sm$value))
   module.cluster.list = as.list(cluster_walktrap(graph, weights =  E(graph)$weight)); 
-  # rm(sm, d, df, graph)
-  # module.cluster.list = as.list(cluster_walktrap(graph))
 }
 # for each cluster modules, recruit back targets 
 final.module.list = lapply(1:length(module.cluster.list), function(index){
