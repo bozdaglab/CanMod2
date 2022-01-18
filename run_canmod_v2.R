@@ -1,3 +1,17 @@
+library(PMA)
+library(pbapply)
+library(HDCI)
+library(data.table)
+library(bnlearn)
+library(doParallel)
+library(parallel)
+library(qdapTools)
+library(GOSemSim)
+library(dplyr)
+library(igraph)
+library(biclust)
+library(philentropy)
+
 # Load utility functions to run CanMod ----------------------------------------------------
 source("helper_functions_v2.R")
 
@@ -18,7 +32,6 @@ regression.data = list(mRNA = mRNA, miRNA = miRNA, methyl = methyl, cna = cnv); 
 #regression.data contains mRNA, cna, methyl, miRNA data
 {
   samples = colnames(regression.data$mRNA)[substr(colnames(regression.data$mRNA), 14, 15) %in% "01"]
-  #samples contain all tumor samples in regression.data$mRNA data
   regression.data$mRNA = regression.data$mRNA[,samples]
   regression.data$miRNA = regression.data$miRNA[,samples]
   regression.data$methyl = regression.data$methyl[,samples]
@@ -35,28 +48,41 @@ regression.data = list(mRNA = mRNA, miRNA = miRNA, methyl = methyl, cna = cnv); 
 
 # STEP 1: Get GO-based cluster --------------------------------------------------------------------------
 de.genes = rownames(regression.data$mRNA); length(de.genes)
-
+save(de.genes, file =  paste0(cancer.type, "_Step1_de.genes.rda"))
 # get similarity matrix
 hsGO2 = godata('org.Hs.eg.db', keytype = "SYMBOL", ont="BP", computeIC=FALSE)
 sum(de.genes %in% unique(hsGO2@keys))
 
 cat("Start computing GO-based similarity matrix \n")
 time = proc.time()
-de.gene.bp.sim = mgeneSim(de.genes, semData=hsGO2, measure="Wang", combine="BMA", verbose=FALSE, drop = NULL)
+de.gene.bp.sim = mgeneSim(de.genes, semData=hsGO2, measure="Wang", combine="avg", verbose=FALSE, drop ="IEA")
 time = proc.time() - time
 cat("running time for computing gene similarity based on GO:", time[3])
+
 cat("Done with obtaining similarity matrix in cluster_de_genes for", cancer.type, "\n") 
+save(de.gene.bp.sim, file =  paste0(cancer.type, "_Step1_de.gene.bp.sim.rda"))
 
-# cluster de gene by GO similarity 
-time = proc.time()
-de.gene.bp.cluster = apcluster(s = de.gene.bp.sim, details = T, maxits = 10000, convits = 100)
-time = proc.time() - time
-cat("running time for computing gene similarity based clusters:", time[3])
 
-de.gene.bp.cluster.list = lapply(1:length(de.gene.bp.cluster@clusters), function(index){
-  cluster = names(de.gene.bp.cluster@clusters[[index]])
-  return(cluster)
+de.gene.bp.sim.new<-de.gene.bp.sim
+
+# cluster de genes based on GO similarity with weighted Walktrap algorithm to generate GC Clusters
+GC_thr = 0.45 #try with both 0.60 & 0.55
+sm = reshape2::melt(de.gene.bp.sim.new)
+sm = sm[sm$Var1 != sm$Var2,]
+sm = sm[sm$value > GC_thr,]
+graph = graph_from_data_frame(sm[,c(1, 2)], directed = F) %>% set_edge_attr("weight", value = as.numeric(sm$value))
+#graph = graph_from_data_frame(sm[,c(1, 2)], directed = F)
+gc.list.45 = as.list(cluster_walktrap(graph))
+gene.cluster.list.45 = lapply(1:length(gc.list.45), function(index){
+  gc.list.45[[index]]
 })
+gene.cluster.df.45 = list2df(gene.cluster.list.45)
+names(gene.cluster.df.55) = c("gene","cluster")
+
+de.gene.bp.cluster.list<-gene.cluster.list.45
+
+save(de.gene.bp.cluster.list, file =  paste0(cancer.type, "_Step1_de.gene.bp.cluster.list.45.rda"))
+
 common.de.genes <- unique(unlist(de.gene.bp.cluster.list))
 
 # Update regression data based on common de genes after getting GO-based similarity results
@@ -65,7 +91,7 @@ common.de.genes <- unique(unlist(de.gene.bp.cluster.list))
   regression.data$methyl = regression.data$methyl[rownames(regression.data$methyl) %in% common.de.genes,]
   regression.data$cna = regression.data$cna[rownames(regression.data$cna) %in% common.de.genes,]
   regression.data$miRNA.target.interactions = regression.data$miRNA.target.interactions[regression.data$miRNA.target.interactions$target %in% rownames(regression.data$mRNA),]
-  regression.data$tf.target.interactions = regression.data$tf.target.interactions[regression.data$tf.target.interactions$tf %in% rownames(regression.data$mRNA),]
+  #regression.data$tf.target.interactions = regression.data$tf.target.interactions[regression.data$tf.target.interactions$tf %in% rownames(regression.data$mRNA),]
   regression.data$tf.target.interactions = regression.data$tf.target.interactions[regression.data$tf.target.interactions$target %in% rownames(regression.data$mRNA),]
 }
 
@@ -75,9 +101,13 @@ target.cluster.list = de.gene.bp.cluster.list
 names(target.cluster.list) = as.character(1:length(target.cluster.list))
 target.cluster.df = list2df(target.cluster.list); names(target.cluster.df) = c("target","cluster")
 
+save(target.cluster.list, file =  paste0(cancer.type, "_Step1_target.cluster.list.45.rda"))
+save(target.cluster.df, file =  paste0(cancer.type, "_Step1_target.cluster.df.45.rda"))
+
+
 # STEP 2: variable selection -----------------------------------
 mRNA.targets = rownames(regression.data$mRNA)
-cluster = parallel::makeCluster(parallel::detectCores()-5, outfile = "log.out")
+cluster = parallel::makeCluster(parallel::detectCores()-2, outfile = "log.out")
 parallel::clusterExport(cl = cluster, 
                         varlist = c("mRNA.targets","regression.data", "getDF"),
                         envir = environment())
@@ -90,7 +120,6 @@ coefs = pbapply::pblapply(cl = cluster, X = 1:length(mRNA.targets), FUN = functi
   if (is.null(regression.df)){
     return(NULL)
   }
-  
   y.matrix = as.matrix(regression.df$mRNA)
   x.matrix = as.matrix(regression.df[,-1])
   colnames(x.matrix) = colnames(regression.df)[-1]
@@ -182,13 +211,16 @@ coefs = pbapply::pblapply(cl = cluster, X = 1:length(mRNA.targets), FUN = functi
 names(coefs) = mRNA.targets
 
 #get bootstrap interval
+
 bt.interval.list = pbapply::pblapply(1:length(mRNA.targets),FUN = function(mRNA.index){
   if (mRNA.index %% 100 == 0) cat(mRNA.index, "\n")
   mRNA = mRNA.targets[mRNA.index]
+  cat(mRNA,"\n")
   include.lncRNA = grepl(mRNA, pattern = "lncRNA")
   regression.df = getDF(regression.data = regression.data, mRNA = mRNA, include.lncRNA = F)
   
   if (is.null(regression.df)){
+    cat ("first",mRNA.index,"\n")
     return(NULL)
   }
   
@@ -199,9 +231,11 @@ bt.interval.list = pbapply::pblapply(1:length(mRNA.targets),FUN = function(mRNA.
   # if only 1 miRNA
   if(ncol(x.matrix) == 1){
     if(cor(x.matrix, y.matrix) > 0){
+      cat ("second",mRNA.index,"\n")
       return(NULL)
     }else{
       if (cor.test(x.matrix, y.matrix)$p.value >= 0.05){
+        cat ("third",mRNA.index,"\n")
         return(NULL)
       }else{
         bt.interval = matrix(c(-1000,1000), ncol = 1)
@@ -221,12 +255,15 @@ bt.interval.list = pbapply::pblapply(1:length(mRNA.targets),FUN = function(mRNA.
               type.boot = "paired",
               standardize = T,  parallel.boot = T, ncores.boot = num.core)
   }, warning = function(w) {
+    cat(w,"war\n")
     NULL
   }, error = function(e) {
+    save(e,file = "e.rda")
     NULL
   })
   
   if (is.null(btlasso.result)){
+    cat ("fourth",mRNA.index,"\n")
     return(NULL)
   }
   
@@ -245,10 +282,14 @@ regulator.list = lapply(1:length(coefs), function(index){
 })
 names(regulator.list) = mRNA.targets
 
+save(coefs, file =  paste0(cancer.type, "_Step2_coefs.wt.45.rda"))
+save(bt.interval.list, file =  paste0(cancer.type, "_Step2_bt.interval.list.wt.45.rda"))
+save(regulator.list, file =  paste0(cancer.type, "_Step2_regulator.list.wt.45.rda"))
+
 # STEP 3: cluster regulators based on shared targets similarity -------------------------------------------------------------------
 # load lasso result 
 regulator.target.pair.list = lapply(1:length(regulator.list), function(gene.index) {
-  if(gene.index %% 100 == 0) print(gene.index)
+  #if(gene.index %% 100 == 0) print(gene.index)
   #print(gene.index)
   gene.pair.info.list = regulator.list[[gene.index]]
   gene.coef.dt = gene.pair.info.list$coef.dt
@@ -298,6 +339,7 @@ regulator.target.pair.dt = regulator.target.pair.dt[-which(regulator.target.pair
 to.removed.indicies = which(grepl(regulator.target.pair.dt$regulator, pattern = "hsa") & regulator.target.pair.dt$median.coef >=0 )  # miRNA with positive coefficients
 regulator.target.pair.dt = regulator.target.pair.dt[-to.removed.indicies]
 lasso.df = regulator.target.pair.dt[,c(1,2)]
+save(lasso.df, file =  paste0(cancer.type, "_Step3_lasso.df.45.rda"))
 
 regulation.target.df = matrix(data = 0, 
                               nrow = length(unique(lasso.df$target)),
@@ -312,10 +354,12 @@ for (row.index in 1:nrow(regulation.target.df)){
   regulators = lasso.df$regulator[which(lasso.df$target == target)]
   regulation.target.df[target,regulators] = 1
 }
+dim(regulation.target.df)
 
-RC_thr = 0.20
+RC_thr = 0.10
 # cluster regulators based on shared targets similarity
 {
+  #sm = reshape2::melt(as.matrix(distance(t(regulation.target.df), method = "jaccard",use.row.names = TRUE)))
   sm = reshape2::melt(1-as.matrix(dist(t(regulation.target.df), method = "binary")))
   sm = sm[sm$Var1 != sm$Var2,]
   sm = sm[sm$value > RC_thr,]
@@ -327,9 +371,10 @@ RC_thr = 0.20
   regulator.cluster.df = list2df(regulator.cluster.list)
   names(regulator.cluster.df) = c("regulator","cluster")
 }
-# if(sum(sapply(regulator.cluster.list, function(cluster) length(cluster) == 1 ))>0){
-#   regulator.cluster.list = regulator.cluster.list[-which(sapply(regulator.cluster.list, function(cluster) length(cluster) == 1 ))]
-# }
+
+save(regulator.cluster.list, file =  paste0(cancer.type, "_Step3_regulator.cluster.list.45.rc10.rda"))
+save(regulator.cluster.df, file =  paste0(cancer.type, "_Step3_regulator.cluster.df.45.rc10.rda"))
+
 
 # STEP 4: Generate candidate modules ------------------------------------------------------------------------
 # for each regulator cluster, recruit targets
@@ -342,6 +387,7 @@ regulator.target.cluster.list = lapply(1:length(regulator.cluster.list), functio
   #table(regulator.target.dt$target)
   return(regulator.target.dt)
 }) 
+save(regulator.target.cluster.list, file =  paste0(cancer.type, "_Step4_regulator.target.cluster.list.45.rc10.rda"))
 
 # for each regulator cluster, create list of GO-based clusters, whose elments are seed gene 
 seed.target.list = lapply(1:length(regulator.target.cluster.list), function(k){
@@ -356,6 +402,7 @@ seed.target.list = lapply(1:length(regulator.target.cluster.list), function(k){
   })
   return(target.clusters)
 })
+save(seed.target.list, file =  paste0(cancer.type, "_Step4_seed.target.list.45.rc10.rda"))
 
 expression.df<-rbind(regression.data$mRNA,regression.data$miRNA)
 expression.cor <- cor(as.data.frame(t(regression.data$mRNA)))
@@ -390,6 +437,8 @@ selected.seed.target.list =  lapply(1:length(seed.target.list), function(index){
     return(seed.target.partner.list)
   })
 })
+save(selected.seed.target.list, file =  paste0(cancer.type, "_Step4_selected.seed.target.list.45.rc10.rda"))
+
 regulator.target.list =  lapply(1:length(regulator.cluster.list), function(index){
   regulators = regulator.cluster.list[[index]]
   target.list = selected.seed.target.list[[index]]
@@ -398,7 +447,7 @@ regulator.target.list =  lapply(1:length(regulator.cluster.list), function(index
   })
   return(regulator.target.list)
 })
-
+save(regulator.target.list, file =  paste0(cancer.type, "_Step4_regulator.target.list.45.rc10.rda"))
 
 simplified.regulator.target.list = list()
 for (i in 1:length(regulator.target.list)){
@@ -408,8 +457,12 @@ for (i in 1:length(regulator.target.list)){
   }
 }
 
+save(simplified.regulator.target.list, file =  paste0(cancer.type, "_Step4_simplified.regulator.target.list.45.rc10.rda"))
+
+
 
 # Step 5: refine module using biclustering ----------------------------------------------------------------------------------------------
+##############STEP5###################
 module.expression.list = lapply(1:length(simplified.regulator.target.list), function(index){
   module = simplified.regulator.target.list[[index]]
   target.df = expression.df[module$targets,, drop = F]
@@ -420,15 +473,14 @@ module.expression.list = lapply(1:length(simplified.regulator.target.list), func
 
 {
   {
-    my.delta = 0.0001
-    my.alpha=1.5
-    my.number=50
-    
     means = vector()
     for(index in 1:length(module.expression.list)){
       module <- module.expression.list[[index]]
       exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df), drop = F]
-      exp = as.matrix(abs(exp.values))
+      exp = (as.matrix(abs(exp.values)))*100
+      my.delta=summary(as.vector(exp))[5]
+      my.alpha=1
+      my.number=sum(ncol(exp),nrow(exp))
       if(ncol(exp)>1 && nrow(exp)>1){
         testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number)
         for(x in 1:ncol(testCluster@RowxNumber)){
@@ -447,7 +499,10 @@ module.expression.list = lapply(1:length(simplified.regulator.target.list), func
     for(index in 1:length(module.expression.list)){
       module <- module.expression.list[[index]]
       exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df)]
-      exp = as.matrix(abs(exp.values))
+      exp = (as.matrix(abs(exp.values)))*100
+      my.delta=summary(as.vector(exp))[5]
+      my.alpha=1
+      my.number=sum(ncol(exp),nrow(exp))
       if(ncol(exp)>1 && nrow(exp)>1){
         testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number)
         cluster.toremove = vector()
@@ -481,7 +536,10 @@ module.expression.list = lapply(1:length(simplified.regulator.target.list), func
     for(index in 1:length(module.expression.list)){
       module <- module.expression.list[[index]]
       exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df), drop = F]
-      exp = t(as.matrix(abs(exp.values)))
+      exp = (t(as.matrix(abs(exp.values))))*100
+      my.delta=summary(as.vector(exp))[5]
+      my.alpha=1
+      my.number=sum(ncol(exp),nrow(exp))
       if(ncol(exp)>1 && nrow(exp)>1){
         testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number)
         for(x in 1:ncol(testCluster@RowxNumber)){
@@ -501,7 +559,12 @@ module.expression.list = lapply(1:length(simplified.regulator.target.list), func
     for(index in 1:length(module.expression.list)){
       module <- module.expression.list[[index]]
       exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df)]
-      exp = t(as.matrix(abs(exp.values)))
+      exp = (t(as.matrix(abs(exp.values))))*100
+      my.delta.max= summary(as.vector(exp))[6]
+      my.delta.min= summary(as.vector(exp))[1]
+      my.delta=summary(as.vector(exp))[5]
+      my.alpha=1
+      my.number=sum(ncol(exp),nrow(exp))
       
       if(ncol(exp)>1 && nrow(exp)>1){
         testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number) 
@@ -538,8 +601,10 @@ module.expression.list = lapply(1:length(simplified.regulator.target.list), func
   my.modules = mapply(function(x, y) {list(list(selected.regulators = setdiff(union(x$regulators, y$regulators), NA), 
                                                 selected.targets = setdiff(union(x$targets, y$targets), NA)))}, my.modules1, my.modules2)
   
+  
   toremove = unlist(sapply(my.modules, function(m) (length(m$selected.regulators) == 0 || length(m$selected.targets) == 0)||is.na(m$selected.regulators)[1] || is.na(m$selected.targets)[1]))
   simplified.regulator.target.list = my.modules[!toremove]
+  
   module.expression.list = lapply(1:length(simplified.regulator.target.list), function(index){
     module = simplified.regulator.target.list[[index]]
     target.df = expression.df[module$selected.targets,, drop = F]
@@ -555,28 +620,37 @@ module.expression.list = lapply(1:length(simplified.regulator.target.list), func
   filtered.bic.target.df = qdapTools::list2df(filtered.bic.target.list)
   colnames(filtered.bic.target.df) = c("target","module")
   
+  filtered.bic.regulator.list = lapply(filtered.bic.module.list, function(module){
+    module$selected.regulators
+  })
+  filtered.bic.regulator.df = qdapTools::list2df(filtered.bic.regulator.list)
+  colnames(filtered.bic.regulator.df) = c("regulator","module")
+  
   target.module.df = matrix(data = 0, 
-                            nrow = length(unique(filtered.bic.target.df$target)),
+                            nrow = length(unique(filtered.bic.target.df$target))+length(unique(filtered.bic.regulator.df$regulator)),
                             ncol = length(unique(filtered.bic.target.df$module)),
-                            dimnames = list(unique(filtered.bic.target.df$target),
+                            dimnames = list(c(unique(filtered.bic.target.df$target),unique(filtered.bic.regulator.df$regulator)),
                                             unique(filtered.bic.target.df$module)))
   
   target.module.df = as.data.frame(target.module.df)
   for (row.index in 1:nrow(target.module.df)){
-    if (row.index %% 100 == 0) print(row.index)
-    target = rownames(target.module.df)[row.index]
-    modules = filtered.bic.target.df$module[which(filtered.bic.target.df$target == target)]
-    target.module.df[target,modules] = 1
+    x = rownames(target.module.df)[row.index]
+    modules = as.numeric(unique(c(filtered.bic.target.df$module[which(filtered.bic.target.df$target == x)],
+                                  filtered.bic.regulator.df$module [which(filtered.bic.regulator.df$regulator == x)])))
+    target.module.df[x,modules]= 1
   }
 }
+save(filtered.bic.module.list, file = paste0(cancer.type, "_Step5_filtered.bic.module.list.rda"))
+##############STEP6####################
 
-# Step 6: cluster modules by shared target 
 {
   sm = reshape2::melt(1-as.matrix(dist(t(target.module.df), method = "binary")))
-  sm = sm[sm$value > 0.25,]
+  sm = sm[sm$value >=0.8,]
   graph = graph_from_data_frame(sm[,c(1, 2)], directed = F) %>%
     set_edge_attr("weight", value = as.numeric(sm$value))
-  module.cluster.list = as.list(cluster_walktrap(graph, weights =  E(graph)$weight)); rm(sm, d, df, graph)
+  module.cluster.list = as.list(cluster_walktrap(graph, weights =  E(graph)$weight)); 
+  # rm(sm, d, df, graph)
+  # module.cluster.list = as.list(cluster_walktrap(graph))
 }
 # for each cluster modules, recruit back targets 
 final.module.list = lapply(1:length(module.cluster.list), function(index){
@@ -593,4 +667,5 @@ final.module.list = lapply(1:length(module.cluster.list), function(index){
   return(list(regulators = combined.regulators, targets = combined.targets))
 })
 
-save(final.module.list, file = paste0(cancer.type, "_modules.rda"))
+
+save(final.module.list, file = paste0(cancer.type, "_Step6_final.module.list.rda"))
