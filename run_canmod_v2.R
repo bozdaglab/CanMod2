@@ -400,7 +400,7 @@ seed.target.list = lapply(1:length(regulator.target.cluster.list), function(k){
 })
 save(seed.target.list, file =  paste0(cancer.type, "_Step4_seed.target.list.45.rc10.rda"))
 
-expression.df<-rbind(regression.data$mRNA,regression.data$miRNA)
+expression.df<-rbind(regression.data$exp,regression.data$miRNA)
 expression.cor <- cor(as.data.frame(t(regression.data$mRNA)))
 cor.threshold = quantile(abs(expression.cor), 0.9)
 expression.cor <- cor(as.data.frame(t(expression.df)))
