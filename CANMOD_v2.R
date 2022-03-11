@@ -33,7 +33,7 @@ regression.data = list(mRNA = mRNA, miRNA = miRNA, methyl = methyl, cna = cnv); 
 }
 
 # Adjust hyperparameters ---------------------------------------------------------
-drop.thr = 0.05
+drop_thr = 0.05
 GC_thr = 0.45
 RC_thr = 0.10
 
@@ -632,7 +632,7 @@ save(final.module.list, file = paste0("results/", cancer.type, "_Step6_final.mod
 # Iterations -------------------------------------------------------------------
 it.no = it.no + 1
 drop = 1
-while(drop >=drop.thr){
+while(drop >=drop_thr){
   cat(paste0('------------------- Iteration ',it.no,' -----------------\n'))
   x = sapply (final.module.list, function(r) r$regulators)
   prev_reg_size = length(unique(unlist(x)))
@@ -851,7 +851,7 @@ while(drop >=drop.thr){
   cat(paste0('Drop is ', round(drop, digits=3), '\n'))
   
   
-  if(drop >=drop.thr){
+  if(drop >=drop_thr){
     it.no = it.no + 1
   }else{
     load(paste0("results/", cancer.type, "_Step6_final.module.list.", (it.no-1), ".rda"))
