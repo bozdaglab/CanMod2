@@ -10,9 +10,7 @@ CanMod is a computational pipeline to identify gene regulatory modules containin
   - Step 5: Refine each modules so that the expression of regulators and target genes in each module is correlated
   - Step 6: Merge modules which share a large amount of similar targets
 
-Source code to run CANMOD could be found in CANMOD_v2.R.
-
-Run CANMOD with the command `Rscript CANMOD_v2.R *data_name*`  where *data_name* is one of [BRCA, KIRC, LUSC, PRAD, UCEC] for the corresponding preprocessed TCGA datasets of CANMOD.
+Run CANMOD with the command `Rscript CANMOD_v2.R *data_name*`  where *data_name* is one of [BRCA, KIRC, LUSC, PRAD, UCEC] for the corresponding preprocessed TCGA datasets of CANMOD (default is BRCA).
 
 ---
 
