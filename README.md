@@ -6,7 +6,7 @@ CanMod is a computational pipeline to identify gene regulatory modules containin
   - Step 3: Cluster the regulators based on shared target similarity and generate Regulator Clusters (RCs)
   - Step 4: Generate modules using the regulators and the target GCs
   
-  Iteratively refining modules running:
+  Iteratively refining modules running following two steps:
   - Step 5: Refine each module using biclustering
   - Step 6: Merge modules that share high similarity
 
