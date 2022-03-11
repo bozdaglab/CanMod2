@@ -1,5 +1,5 @@
 # CANMOD v2
-CanMod is a computational pipeline to identify gene regulatory network in cancer. It consists of 6 main steps:
+CanMod is a computational pipeline to identify gene regulatory modules containing 6 main steps:
 
   - Step 1: Cluster the differentially expressed (DE) genes genes based on their GO-term similarity
   - Step 2: Identify regulators (i.e., miRNAs or transcription factors (TFs)) for each DE gene
