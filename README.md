@@ -10,7 +10,13 @@ CanMod is a computational pipeline to identify gene regulatory modules containin
   - Step 5: Refine each module using biclustering
   - Step 6: Merge modules that share high similarity
 
-Run CANMOD with the command `Rscript CANMOD_v2.R *data_name*`  where *data_name* is one of [BRCA, KIRC, LUSC, PRAD, UCEC] for the corresponding preprocessed TCGA datasets of CANMOD (default is BRCA).
+Run CANMOD with the command `Rscript CANMOD_v2.R` for sample run, or `Rscript CANMOD_v2.R *data_name*`  where *data_name.rda* is the file name containing required data under `data` folder. *data_name*.rda will have the following variables:
+
+  - `mRNA`: A data frame containing gene expression data (Rows are all DE genes and columns are samples).
+  - `miRNA`: A data frame containing MicroRNA expression data (Rows are all DE microRNAs and columns are samples).
+  - `methyl`: A data frame containing DNA methylation data (Rows are all DE genes and columns are samples).
+  - `cnv`: A data frame containing Copy number aberration data (Rows are all DE genes and columns are samples).
+! Samples in these four variables will be in the same order.
 
 ---
 
