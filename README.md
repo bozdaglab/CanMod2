@@ -1,4 +1,3 @@
-CanMod version 2 for journal version.
 # CANMOD v2
 CanMod is a computational pipeline to identify gene regulatory network in cancer. It consists of 6 main steps:
 
