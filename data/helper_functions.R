@@ -1,4 +1,3 @@
-# install.packages("bnlearn")
 library(data.table)
 library(pbapply)
 library(doParallel)
@@ -9,12 +8,11 @@ library(bnlearn)
 library(PMA)
 library(qdapTools)
 library(GOSemSim)
-library(apcluster)
-library(igraph)
 library(rlist)
+library(dplyr)
+library(igraph)
 library(biclust)
 
-# get regression df for each mRNA with cna, methyl, TF and miRNA included as candidate regulators
 getDF = function(regression.data, mRNA, include.lncRNA = F){
   miRNA.target.interactions = regression.data$miRNA.target.interactions #TCGA, starbase & targetScan common miRNA
   miRNA.candidates = as.character(miRNA.target.interactions[miRNA.target.interactions$target == mRNA,c("miRNA")])
