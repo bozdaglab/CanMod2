@@ -222,7 +222,7 @@ bt.interval.list = pbapply::pblapply(1:length(mRNA.targets),FUN = function(mRNA.
     }
   }
   
-  num.core = parallel::detectCores()-5
+  num.core = parallel::detectCores()-2
   doParallel::registerDoParallel(num.core)
   num.bt.replications = 100
   btlasso.result = tryCatch({
@@ -259,7 +259,7 @@ regulator.list = lapply(1:length(coefs), function(index){
 })
 names(regulator.list) = mRNA.targets
 
-save(coefs, file =  paste0("results/", cancer.type, "_Step2_coefs.wt.rda"))
+save(coefs, file =  paste0("results/", cancer.type, "_Step2_coefs.rda"))
 save(bt.interval.list, file =  paste0("results/", cancer.type, "_Step2_bt.interval.list.wt.rda"))
 save(regulator.list, file =  paste0("results/", cancer.type, "_Step2_regulator.list.wt.rda"))
 
@@ -858,7 +858,7 @@ while(drop >=drop.thr){
     save(final.module.list, file = paste0("results/", cancer.type, '_final.module.list.rda'))
     cat(paste0((it.no-1), '.iteration is selected!\n'))
     cat("CANMOD is done!\n")
-    cat("Final module list is saved as \'", cancer.type, "_final.module.list.rda\' under \'results\' folder!\n")
+    cat(paste0("Final module list is saved as \'", cancer.type, "_final.module.list.rda\' under \'results\' folder!\n"))
     break
   }
 }
