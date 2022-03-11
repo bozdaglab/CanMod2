@@ -2,7 +2,7 @@
 CanMod is a computational pipeline to identify gene regulatory modules containing 6 main steps:
 
   - Step 1: Cluster the differentially expressed (DE) genes genes based on their GO-term similarity
-  - Step 2: Identify regulators (i.e., miRNAs or transcription factors (TFs)) for each DE gene
+  - Step 2: Identify regulators (i.e., miRNAs or transcription factors) for each DE gene
   - Step 3: Cluster the regulators based on shared target similarity
   - Step 4: Generate modules using the regulators and the target gene clusters
   
