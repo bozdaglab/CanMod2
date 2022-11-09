@@ -26,5 +26,5 @@ Run CANMOD with the command `Rscript CANMOD_v2.R` for sample run, or `Rscript CA
   - `GC_thr`: Gene cluster (GC) threshold (default is 0.45)
   - `RC_thr`: Regulator cluster (RC) threshold (default is 0.10)
 - To input user-defined GCs instead of CANMOD-generated GCs, provide the following files under main folder:
-  - `user.defined.gene.cluster.list.rda`: File having one list named `gene.cluster.list` containing the list of GCs
-  - `user.defined.similarities.rda`: File having one matrix named `de.gene.bp.sim` containing the similarity between genes in GCs
+  - `sample_user.defined.gene.cluster.list.rda`: File having one list named `gene.cluster.list` containing the list of GCs
+  - `sample_user.defined.similarities.rda`: File having one matrix named `de.gene.bp.sim` containing the similarity between genes in GCs
