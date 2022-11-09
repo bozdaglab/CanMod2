@@ -7,8 +7,6 @@ if (!exists("cancer.type")){
   cancer.type = ifelse(length(args) !=0 , args[1], "sample")
 }
 
-# cancer.type = "sample"
-
 # Load required input for CanMod  ---------------------------------------------------------
 load("data/miRNA_mRNA_interactions.rda")
 colnames(putative.miRNA.mRNA.interactions) = c("miRNA","target")
@@ -41,20 +39,20 @@ RC_thr = 0.10
 de.genes = rownames(regression.data$mRNA)
 save(de.genes, file =  paste0("results/", cancer.type, "_Step1_de.genes.rda"))
 
-if(file.exists("user.defined.gene.cluster.list.rda") && file.exists("user.defined.similarities.rda")){
+if(file.exists(paste0(cancer.type, "_user.defined.gene.cluster.list.rda")) && file.exists(paste0(cancer.type, "_user.defined.similarities.rda"))){
   cat("CANMOD is using user-defined Gene Clusters and similarities.")
-  load("user.defined.gene.cluster.list.rda")
-  load("user.defined.similarities.rda")
+  load(paste0(cancer.type, "_user.defined.gene.cluster.list.rda"))
+  load(paste0(cancer.type, "_user.defined.similarities.rda"))
 }else{
   hsGO2 = godata('org.Hs.eg.db', keytype = "SYMBOL", ont="BP", computeIC=FALSE)
   
   cat("Start computing GO-based similarity matrix \n")
   time = proc.time()
-  de.gene.bp.sim = mgeneSim(de.genes, semData=hsGO2, measure="Wang", combine="avg", verbose=FALSE, drop ="IEA")
+  de.gene.bp.sim = mgeneSim(de.genes, semData=hsGO2, measure="Wang", combine="BMA", verbose=FALSE, drop = NULL)
   time = proc.time() - time
-  cat("running time for computing gene similarity based on GO:", time[3])
+  cat(paste0("running time for computing gene similarity based on GO:", time[3], "\n"))
   
-  cat("Done with obtaining similarity matrix in cluster_de_genes for", cancer.type, "\n") 
+  cat(paste0("Done with obtaining similarity matrix in cluster_de_genes for", cancer.type, "\n")) 
   save(de.gene.bp.sim, file =  paste0("results/", cancer.type, "_Step1_de.gene.bp.sim.rda"))
   
   sm = reshape2::melt(de.gene.bp.sim)
@@ -198,7 +196,6 @@ bt.interval.list = pbapply::pblapply(1:length(mRNA.targets),FUN = function(mRNA.
   regression.df = getDF(regression.data = regression.data, mRNA = mRNA, include.lncRNA = F)
   
   if (is.null(regression.df)){
-    cat ("first",mRNA.index,"\n")
     return(NULL)
   }
   
@@ -208,11 +205,9 @@ bt.interval.list = pbapply::pblapply(1:length(mRNA.targets),FUN = function(mRNA.
   
   if(ncol(x.matrix) == 1){
     if(cor(x.matrix, y.matrix) > 0){
-      cat ("second",mRNA.index,"\n")
       return(NULL)
     }else{
       if (cor.test(x.matrix, y.matrix)$p.value >= 0.05){
-        cat ("third",mRNA.index,"\n")
         return(NULL)
       }else{
         bt.interval = matrix(c(-1000,1000), ncol = 1)
@@ -222,25 +217,20 @@ bt.interval.list = pbapply::pblapply(1:length(mRNA.targets),FUN = function(mRNA.
     }
   }
   
-  num.core = parallel::detectCores()-2
-  doParallel::registerDoParallel(num.core)
   num.bt.replications = 100
   btlasso.result = tryCatch({
     bootLasso(x = x.matrix, y = y.matrix,
               B = num.bt.replications,
               cv.method = "cv1se",
               type.boot = "paired",
-              standardize = T,  parallel.boot = T, ncores.boot = num.core)
+              standardize = T)
   }, warning = function(w) {
-    cat(w,"war\n")
     NULL
   }, error = function(e) {
-    save(e,file = "e.rda")
     NULL
   })
   
   if (is.null(btlasso.result)){
-    cat ("fourth",mRNA.index,"\n")
     return(NULL)
   }
   
@@ -311,7 +301,11 @@ regulator.target.pair.dt = rbindlist(regulator.target.pair.list)
 regulator.target.pair.dt = regulator.target.pair.dt[which(regulator.target.pair.dt$confidence == T & regulator.target.pair.dt$count >=75)]
 regulator.target.pair.dt = regulator.target.pair.dt[-which(regulator.target.pair.dt$regulator %in% c("CNA","Methyl"))]
 to.removed.indicies = which(grepl(regulator.target.pair.dt$regulator, pattern = "hsa") & regulator.target.pair.dt$median.coef >=0 )
-regulator.target.pair.dt = regulator.target.pair.dt[-to.removed.indicies]
+
+if(length(to.removed.indicies) != 0){
+  regulator.target.pair.dt = regulator.target.pair.dt[-to.removed.indicies]
+}
+
 lasso.df = regulator.target.pair.dt[,c(1,2)]
 save(lasso.df, file =  paste0("results/", cancer.type, "_Step3_lasso.df.rda"))
 
@@ -370,7 +364,7 @@ seed.target.list = lapply(1:length(regulator.target.cluster.list), function(k){
 })
 save(seed.target.list, file =  paste0("results/", cancer.type, "_Step4_seed.target.list.rda"))
 
-expression.df<-rbind(regression.data$exp,regression.data$miRNA)
+expression.df<-rbind(regression.data$mRNA,regression.data$miRNA)
 expression.cor <- cor(as.data.frame(t(regression.data$mRNA)))
 cor.threshold = quantile(abs(expression.cor), 0.9)
 expression.cor <- cor(as.data.frame(t(expression.df)))
@@ -424,224 +418,24 @@ for (i in 1:length(regulator.target.list)){
 }
 save(simplified.regulator.target.list, file =  paste0("results/", cancer.type, "_Step4_simplified.regulator.target.list.rda"))
 
-it.no = 1
-# Step 5: Refine module using biclustering ----------------------------------------------------------------------------------------------
-module.expression.list = lapply(1:length(simplified.regulator.target.list), function(index){
-  module = simplified.regulator.target.list[[index]]
-  target.df = expression.df[module$targets,, drop = F]
-  regulator.df = expression.df[module$regulators,, drop = F]
-  module = list(target.df=target.df,
-                regulator.df=regulator.df)
-})
 
-{
-  {
-    means = vector()
-    for(index in 1:length(module.expression.list)){
-      module <- module.expression.list[[index]]
-      exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df), drop = F]
-      exp = (as.matrix(abs(exp.values)))*100
-      my.delta=summary(as.vector(exp))[5]
-      my.alpha=1
-      my.number=sum(ncol(exp),nrow(exp))
-      if(ncol(exp)>1 && nrow(exp)>1){
-        testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number)
-        for(x in 1:ncol(testCluster@RowxNumber)){
-          if(is.na(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[3])){
-            means = c(means, summary(as.vector(exp[rownames(exp), colnames(exp)]))[4])
-          }else{
-            means = c(means, summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[4])
-          }
-        }
-      }else{
-        means = c(means, summary(as.vector(exp[rownames(exp), colnames(exp)]))[4])
-      }
-    }
-    thr = unname(summary(means)[2])
-    my.modules = simplified.regulator.target.list
-    for(index in 1:length(module.expression.list)){
-      module <- module.expression.list[[index]]
-      exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df)]
-      exp = (as.matrix(abs(exp.values)))*100
-      my.delta=summary(as.vector(exp))[5]
-      my.alpha=1
-      my.number=sum(ncol(exp),nrow(exp))
-      if(ncol(exp)>1 && nrow(exp)>1){
-        testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number)
-        cluster.toremove = vector()
-        for(x in 1:ncol(testCluster@RowxNumber)){
-          if(is.na(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[3])){
-          }else{
-            if(unname(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[4]) < thr){
-              cluster.toremove = c(cluster.toremove, x)
-            }
-          }
-        }
-        
-        if(length(cluster.toremove) == ncol(testCluster@RowxNumber)){
-          my.modules[[index]]$regulators = NA
-          my.modules[[index]]$targets = NA
-        }else{
-          cluster.tokeep = setdiff(1:ncol(testCluster@RowxNumber), cluster.toremove)
-          selection.tar = t(testCluster@RowxNumber)
-          selection.reg = testCluster@NumberxCol
-          my.modules[[index]]$regulators = colnames(exp)[colSums(selection.reg[cluster.tokeep,,drop = F])>0]
-          my.modules[[index]]$targets = rownames(exp)[colSums(selection.tar[cluster.tokeep,,drop = F])>0]
-        }
-      }else{
-      }
-    }
-  }
-  my.modules1 = my.modules; rm(my.modules)
-  
-  {
-    means = vector()
-    for(index in 1:length(module.expression.list)){
-      module <- module.expression.list[[index]]
-      exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df), drop = F]
-      exp = (t(as.matrix(abs(exp.values))))*100
-      my.delta=summary(as.vector(exp))[5]
-      my.alpha=1
-      my.number=sum(ncol(exp),nrow(exp))
-      if(ncol(exp)>1 && nrow(exp)>1){
-        testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number)
-        for(x in 1:ncol(testCluster@RowxNumber)){
-          if(is.na(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[3])){
-            means = c(means, summary(as.vector(exp[rownames(exp), colnames(exp)]))[4])
-          }else{
-            means = c(means, summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[4])
-          }
-        }
-      }else{
-        means = c(means, summary(as.vector(exp[rownames(exp), colnames(exp)]))[4])
-      }
-    }
-    
-    thr = unname(summary(means)[2])
-    my.modules = simplified.regulator.target.list
-    for(index in 1:length(module.expression.list)){
-      module <- module.expression.list[[index]]
-      exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df)]
-      exp = (t(as.matrix(abs(exp.values))))*100
-      my.delta.max= summary(as.vector(exp))[6]
-      my.delta.min= summary(as.vector(exp))[1]
-      my.delta=summary(as.vector(exp))[5]
-      my.alpha=1
-      my.number=sum(ncol(exp),nrow(exp))
-      
-      if(ncol(exp)>1 && nrow(exp)>1){
-        testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number) 
-        
-        cluster.toremove = vector()
-        
-        for(x in 1:ncol(testCluster@RowxNumber)){
-          if(is.na(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[3])){
-          }else{
-            if(unname(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[4]) < thr){
-              cluster.toremove = c(cluster.toremove, x)
-            }
-          }
-        }
-        
-        if(length(cluster.toremove) == ncol(testCluster@RowxNumber)){
-          my.modules[[index]]$regulators = NA
-          my.modules[[index]]$targets = NA
-        }else{
-          cluster.tokeep = setdiff(1:ncol(testCluster@RowxNumber), cluster.toremove)
-          
-          selection.reg = t(testCluster@RowxNumber)
-          selection.tar = testCluster@NumberxCol
-          
-          my.modules[[index]]$targets = colnames(exp)[colSums(selection.tar[cluster.tokeep,,drop = F])>0]
-          my.modules[[index]]$regulators = rownames(exp)[colSums(selection.reg[cluster.tokeep,,drop = F])>0]
-        }
-      }else{
-      }
-    }
-  }
-  my.modules2 = my.modules; rm(my.modules)
-  
-  my.modules = mapply(function(x, y) {list(list(selected.regulators = setdiff(union(x$regulators, y$regulators), NA), 
-                                                selected.targets = setdiff(union(x$targets, y$targets), NA)))}, my.modules1, my.modules2)
-  
-  
-  toremove = unlist(sapply(my.modules, function(m) (length(m$selected.regulators) == 0 || length(m$selected.targets) == 0)||is.na(m$selected.regulators)[1] || is.na(m$selected.targets)[1]))
-  simplified.regulator.target.list = my.modules[!toremove]
-  
-  module.expression.list = lapply(1:length(simplified.regulator.target.list), function(index){
-    module = simplified.regulator.target.list[[index]]
-    target.df = expression.df[module$selected.targets,, drop = F]
-    regulator.df = expression.df[module$selected.regulators,, drop = F]
-    module = list(target.df=target.df,
-                  regulator.df=regulator.df)
-  })
-  
-  filtered.bic.module.list = simplified.regulator.target.list
-  filtered.bic.target.list = lapply(filtered.bic.module.list, function(module){
-    module$selected.targets
-  })
-  filtered.bic.target.df = qdapTools::list2df(filtered.bic.target.list)
-  colnames(filtered.bic.target.df) = c("target","module")
-  
-  filtered.bic.regulator.list = lapply(filtered.bic.module.list, function(module){
-    module$selected.regulators
-  })
-  filtered.bic.regulator.df = qdapTools::list2df(filtered.bic.regulator.list)
-  colnames(filtered.bic.regulator.df) = c("regulator","module")
-  
-  target.module.df = matrix(data = 0, 
-                            nrow = length(unique(filtered.bic.target.df$target))+length(unique(filtered.bic.regulator.df$regulator)),
-                            ncol = length(unique(filtered.bic.target.df$module)),
-                            dimnames = list(c(unique(filtered.bic.target.df$target),unique(filtered.bic.regulator.df$regulator)),
-                                            unique(filtered.bic.target.df$module)))
-  
-  target.module.df = as.data.frame(target.module.df)
-  for (row.index in 1:nrow(target.module.df)){
-    x = rownames(target.module.df)[row.index]
-    modules = as.numeric(unique(c(filtered.bic.target.df$module[which(filtered.bic.target.df$target == x)],
-                                  filtered.bic.regulator.df$module [which(filtered.bic.regulator.df$regulator == x)])))
-    target.module.df[x,modules]= 1
-  }
-}
-save(filtered.bic.module.list, file = paste0("results/", cancer.type, "_Step5_filtered.bic.module.list", it.no, ".rda"))
-
-# STEP 6 -------------------------------------------------------------------
-{
-  sm = reshape2::melt(1-as.matrix(dist(t(target.module.df), method = "binary")))
-  sm = sm[sm$value >=0.8,]
-  graph = graph_from_data_frame(sm[,c(1, 2)], directed = F) %>%
-    set_edge_attr("weight", value = as.numeric(sm$value))
-  module.cluster.list = as.list(cluster_walktrap(graph, weights =  E(graph)$weight)); 
-}
-
-final.module.list = lapply(1:length(module.cluster.list), function(index){
-  modules = as.numeric(module.cluster.list[[index]])
-  detailed.modules = filtered.bic.module.list[modules]
-  combined.regulators = lapply(detailed.modules, function(module){
-    module$selected.regulators
-  })
-  combined.regulators = unique(unlist(combined.regulators))
-  combined.targets = lapply(detailed.modules, function(module){
-    module$selected.targets
-  }) 
-  combined.targets = unique(unlist(combined.targets))
-  return(list(regulators = combined.regulators, targets = combined.targets))
-})
-save(final.module.list, file = paste0("results/", cancer.type, "_Step6_final.module.list.", it.no, ".rda"))
-
-# Iterations -------------------------------------------------------------------
-it.no = it.no + 1
-drop = 1
-while(drop >=drop_thr){
+# STEPS 5 and 6 iteratively -------------------------------------------------------------------
+it.no = 1; drop = 1
+while(drop >=drop_thr || it.no <= 2){
   cat(paste0('------------------- Iteration ',it.no,' -----------------\n'))
-  x = sapply (final.module.list, function(r) r$regulators)
+  # Step 5: Refine module using biclustering ----------------------------------------------------------------------------------------------
+  if(it.no > 1){
+    temp.module.list = final.module.list
+  }else{
+    temp.module.list = simplified.regulator.target.list
+  }
+  x = sapply (temp.module.list, function(r) r$regulators)
   prev_reg_size = length(unique(unlist(x)))
-  y = sapply (final.module.list, function(r) r$targets)
+  y = sapply (temp.module.list, function(r) r$targets)
   prev_target_size = length(unique(unlist(y))) 
   
-  simplified.regulator.target.list = final.module.list
-  module.expression.list = lapply(1:length(simplified.regulator.target.list), function(index){
-    module = simplified.regulator.target.list[[index]]
+  module.expression.list = lapply(1:length(temp.module.list), function(index){
+    module = temp.module.list[[index]]
     target.df = expression.df[module$targets,, drop = F]
     regulator.df = expression.df[module$regulators,, drop = F]
     module = list(target.df=target.df,
@@ -649,6 +443,7 @@ while(drop >=drop_thr){
   })
   
   {
+    options(warn = -1)
     {
       means = vector()
       for(index in 1:length(module.expression.list)){
@@ -659,7 +454,7 @@ while(drop >=drop_thr){
         my.alpha=1
         my.number=sum(ncol(exp),nrow(exp))
         if(ncol(exp)>1 && nrow(exp)>1){
-          testCluster <- biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number)
+          testCluster <-biclust(x = exp, method=BCCC(), delta = my.delta, alpha=my.alpha, number=my.number) 
           for(x in 1:ncol(testCluster@RowxNumber)){
             if(is.na(summary(as.vector(exp[rownames(exp)[testCluster@RowxNumber[,x]], colnames(exp)[testCluster@NumberxCol[x,]]]))[3])){
               means = c(means, summary(as.vector(exp[rownames(exp), colnames(exp)]))[4])
@@ -672,7 +467,7 @@ while(drop >=drop_thr){
         }
       }
       thr = unname(summary(means)[2])
-      my.modules = simplified.regulator.target.list
+      my.modules = temp.module.list
       for(index in 1:length(module.expression.list)){
         module <- module.expression.list[[index]]
         exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df)]
@@ -697,8 +492,13 @@ while(drop >=drop_thr){
             my.modules[[index]]$targets = NA
           }else{
             cluster.tokeep = setdiff(1:ncol(testCluster@RowxNumber), cluster.toremove)
-            selection.tar = t(testCluster@RowxNumber)
-            selection.reg = testCluster@NumberxCol
+            if(ncol(testCluster@RowxNumber) == 1){
+              selection.tar = t(testCluster@RowxNumber)
+              selection.reg = t(testCluster@NumberxCol)
+            }else{
+              selection.tar = t(testCluster@RowxNumber)
+              selection.reg = testCluster@NumberxCol
+            }
             my.modules[[index]]$regulators = colnames(exp)[colSums(selection.reg[cluster.tokeep,,drop = F])>0]
             my.modules[[index]]$targets = rownames(exp)[colSums(selection.tar[cluster.tokeep,,drop = F])>0]
           }
@@ -732,13 +532,11 @@ while(drop >=drop_thr){
       }
       
       thr = unname(summary(means)[2])
-      my.modules = simplified.regulator.target.list
+      my.modules = temp.module.list
       for(index in 1:length(module.expression.list)){
         module <- module.expression.list[[index]]
         exp.values = expression.cor[rownames(module$target.df), rownames(module$regulator.df)]
         exp = (t(as.matrix(abs(exp.values))))*100
-        my.delta.max= summary(as.vector(exp))[6]
-        my.delta.min= summary(as.vector(exp))[1]
         my.delta=summary(as.vector(exp))[5]
         my.alpha=1
         my.number=sum(ncol(exp),nrow(exp))
@@ -762,35 +560,40 @@ while(drop >=drop_thr){
             my.modules[[index]]$targets = NA
           }else{
             cluster.tokeep = setdiff(1:ncol(testCluster@RowxNumber), cluster.toremove)
-            
-            selection.reg = t(testCluster@RowxNumber)
-            selection.tar = testCluster@NumberxCol
-            
+            if(ncol(testCluster@RowxNumber) == 1){
+              selection.reg = t(testCluster@RowxNumber)
+              selection.tar = t(testCluster@NumberxCol)
+            }else{
+              selection.reg = t(testCluster@RowxNumber)
+              selection.tar = testCluster@NumberxCol
+            }
             my.modules[[index]]$targets = colnames(exp)[colSums(selection.tar[cluster.tokeep,,drop = F])>0]
             my.modules[[index]]$regulators = rownames(exp)[colSums(selection.reg[cluster.tokeep,,drop = F])>0]
-          }
+            
+          } 
         }else{
         }
       }
     }
     my.modules2 = my.modules; rm(my.modules)
+    options(warn = 0)
     
     my.modules = mapply(function(x, y) {list(list(selected.regulators = setdiff(union(x$regulators, y$regulators), NA), 
                                                   selected.targets = setdiff(union(x$targets, y$targets), NA)))}, my.modules1, my.modules2)
     
     
     toremove = unlist(sapply(my.modules, function(m) (length(m$selected.regulators) == 0 || length(m$selected.targets) == 0)||is.na(m$selected.regulators)[1] || is.na(m$selected.targets)[1]))
-    simplified.regulator.target.list = my.modules[!toremove]
+    temp.module.list = my.modules[!toremove]
     
-    module.expression.list = lapply(1:length(simplified.regulator.target.list), function(index){
-      module = simplified.regulator.target.list[[index]]
+    module.expression.list = lapply(1:length(temp.module.list), function(index){
+      module = temp.module.list[[index]]
       target.df = expression.df[module$selected.targets,, drop = F]
       regulator.df = expression.df[module$selected.regulators,, drop = F]
       module = list(target.df=target.df,
                     regulator.df=regulator.df)
     })
     
-    filtered.bic.module.list = simplified.regulator.target.list
+    filtered.bic.module.list = temp.module.list
     filtered.bic.target.list = lapply(filtered.bic.module.list, function(module){
       module$selected.targets
     })
@@ -817,11 +620,12 @@ while(drop >=drop_thr){
       target.module.df[x,modules]= 1
     }
   }
-  save(filtered.bic.module.list, file = paste0("results/", cancer.type, "_Step5_filtered.bic.module.list", it.no, ".rda"))  
+  save(filtered.bic.module.list, file = paste0("results/", cancer.type, "_Step5_filtered.bic.module.list.", it.no, ".rda"))
   
+  # STEP 6 -------------------------------------------------------------------
   {
     sm = reshape2::melt(1-as.matrix(dist(t(target.module.df), method = "binary")))
-    sm = sm[sm$value >=0.7,]
+    sm = sm[sm$value >=0.8,]
     graph = graph_from_data_frame(sm[,c(1, 2)], directed = F) %>%
       set_edge_attr("weight", value = as.numeric(sm$value))
     module.cluster.list = as.list(cluster_walktrap(graph, weights =  E(graph)$weight))
@@ -846,20 +650,22 @@ while(drop >=drop_thr){
   this_module_size = length(final.module.list)
   y = sapply (final.module.list, function(r) r$targets)
   this_target_size = length(unique(unlist(y)))
-  cat(paste0('It_',it.no, ': Unique ', this_reg_size, ' regulators and ', this_target_size, ' targets - ', this_module_size,' modules\n'))
   drop = ((prev_reg_size+prev_target_size)-(this_reg_size+this_target_size))/(prev_reg_size+prev_target_size)
-  cat(paste0('Drop is ', round(drop, digits=3), '\n'))
+  if(it.no != 0){
+    cat(paste0('Drop is ', round(drop, digits=3), '\n'))
+  }
+  cat(paste0('It_',it.no, ': Unique ', this_reg_size, ' regulators and ', this_target_size, ' targets - ', this_module_size,' modules\n'))
   
   
-  if(drop >=drop_thr){
+  if(drop >=drop_thr || it.no == 1){
     it.no = it.no + 1
   }else{
     load(paste0("results/", cancer.type, "_Step6_final.module.list.", (it.no-1), ".rda"))
     save(final.module.list, file = paste0("results/", cancer.type, '_final.module.list.rda'))
+    cat(paste0('--------- Not sufficient drop between Iterations ', (it.no-1), ' and ', it.no, ' ---------\n'))
     cat(paste0((it.no-1), '.iteration is selected!\n'))
     cat("CANMOD is done!\n")
     cat(paste0("Final module list is saved as \'", cancer.type, "_final.module.list.rda\' under \'results\' folder!\n"))
     break
   }
 }
-
