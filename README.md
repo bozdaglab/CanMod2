@@ -1,5 +1,5 @@
 # CanMod2
-CanMod is a computational pipeline to identify gene regulatory modules containing 6 main steps:
+CanMod2 is a computational pipeline to identify gene regulatory modules containing 6 main steps:
 
   - Step 1: Cluster the differentially expressed (DE) genes based on GO-term similarity and generate Gene Clusters (GCs)
   - Step 2: Identify regulators (i.e., miRNAs or transcription factors) for each DE gene
@@ -10,7 +10,7 @@ CanMod is a computational pipeline to identify gene regulatory modules containin
   - Step 5: Refine each module using biclustering
   - Step 6: Merge modules that share high similarity
 
-Run CANMOD with the command `Rscript CANMOD_v2.R` for sample run, or `Rscript CANMOD_v2.R *data_name*`  where *data_name*.rda exists under `data` folder with the following variables:
+Run CanMod2 with the command `Rscript CANMOD_v2.R` for sample run, or `Rscript CANMOD_v2.R *data_name*`  where *data_name*.rda exists under `data` folder with the following variables:
 
   - `mRNA`: A data frame containing gene expression data (Rows are all DE genes and columns are samples).
   - `miRNA`: A data frame containing microRNA expression data (Rows are all DE microRNAs and columns are samples).
