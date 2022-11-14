@@ -1,4 +1,4 @@
-# CANMOD2
+# CanMod2
 CanMod is a computational pipeline to identify gene regulatory modules containing 6 main steps:
 
   - Step 1: Cluster the differentially expressed (DE) genes based on GO-term similarity and generate Gene Clusters (GCs)
