@@ -34,6 +34,7 @@ regression.data = list(mRNA = mRNA, miRNA = miRNA, methyl = methyl, cna = cnv); 
 drop_thr = 0.05
 GC_thr = 0.45
 RC_thr = 0.10
+cor_thr = 0.99
 
 # STEP 1: Get GO-based cluster --------------------------------------------------------------------------
 de.genes = rownames(regression.data$mRNA)
@@ -366,9 +367,9 @@ save(seed.target.list, file =  paste0("results/", cancer.type, "_Step4_seed.targ
 
 expression.df<-rbind(regression.data$mRNA,regression.data$miRNA)
 expression.cor <- cor(as.data.frame(t(regression.data$mRNA)))
-cor.threshold = quantile(abs(expression.cor), 0.9)
+cor.threshold = quantile(abs(expression.cor), cor_thr)
 expression.cor <- cor(as.data.frame(t(expression.df)))
-cor.threshold.reg = quantile(abs(expression.cor), 0.9)
+cor.threshold.reg = quantile(abs(expression.cor), cor_thr)
 
 selected.seed.target.list =  lapply(1:length(seed.target.list), function(index){
   overall.seed.list =  seed.target.list[[index]]
